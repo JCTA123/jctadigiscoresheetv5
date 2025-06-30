@@ -119,18 +119,25 @@ export default function App() {
 
   const toggleVisibility = (idx) => {
     const ev = events[idx];
-    updateEvent(idx, { ...ev, visibleToJudges: !ev.visibleToJudges });
+    const updated = { ...ev, visibleToJudges: !ev.visibleToJudges };
+    const updatedEvents = [...events];
+    updatedEvents[idx] = updated;
+    updateFirebase('events', updatedEvents);
+    setEvents(updatedEvents); // ensure UI reflects change immediately
   };
-
+  
   const toggleResultsVisibility = (idx) => {
     const ev = events[idx];
     const updated = {
       ...ev,
       resultsVisibleToJudges: !ev.resultsVisibleToJudges,
     };
-    updateEvent(idx, updated);
+    const updatedEvents = [...events];
+    updatedEvents[idx] = updated;
+    updateFirebase('events', updatedEvents);
+    setEvents(updatedEvents);
   };
-
+  
   const handleInputScore = (idx, judge, participant, crit, val) => {
     const ev = events[idx];
     const scoreVal = val === '' ? '' : Number(val);
