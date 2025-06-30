@@ -44,29 +44,40 @@ export default function App() {
 
   useEffect(() => {
     const eventsRef = ref(db, 'events');
-    const chatRef = ref(db, 'chatMessages');
+    const chatMessagesRef = ref(db, 'chatMessages');
     const codesRef = ref(db, 'judgeCodes');
     const passRef = ref(db, 'organizerPassword');
-
+  
     onValue(eventsRef, (snapshot) => {
       const val = snapshot.val();
-      if (val) setEvents(val);
+      setEvents(val || []); // ← Fallback to empty array
     });
-
-    onValue(chatRef, (snapshot) => {
+  
+    onValue(chatMessagesRef, (snapshot) => {
       const val = snapshot.val();
-      if (val) setChatMessages(val);
+      setChatMessages(val || []);
     });
-
+      
     onValue(codesRef, (snapshot) => {
       const val = snapshot.val();
-      if (val) setJudgeCodes(val);
+      console.log('Loaded judgeCodes:', val); // Optional: Debug
+      setJudgeCodes(val || []); // ← Fix for showing codes
     });
-
+  
     onValue(passRef, (snapshot) => {
       const val = snapshot.val();
-      if (val) setOrganizerPassword(val);
+      setOrganizerPassword(val || DEFAULT_PASSWORD); // ← Default fallback
     });
+  }, []);
+  
+  useEffect(() => {
+    const savedView = localStorage.getItem('viewMode');
+    const savedJudge = localStorage.getItem('currentJudge');
+    const savedOrganizer = localStorage.getItem('organizerView');
+  
+    if (savedView) setViewMode(savedView as 'intro' | 'judge' | 'organizer');
+    if (savedJudge) setCurrentJudge(savedJudge);
+    if (savedOrganizer === 'true') setOrganizerView(true);
   }, []);
 
   const updateFirebase = (key: string, data: any) => {
@@ -203,28 +214,32 @@ export default function App() {
       alert('Please enter a name.');
       return;
     }
-
+  
     const updatedEvents = events.map((ev) => {
       if (!ev.judges.includes(pendingJudgeName)) {
         return { ...ev, judges: [...ev.judges, pendingJudgeName] };
       }
       return ev;
     });
-
+  
     updateFirebase('events', updatedEvents);
-    setCurrentJudge(pendingJudgeName); // ✅ This must run
-    setViewMode('judge'); // ✅ So does this
+    localStorage.setItem('viewMode', 'judge');
+    localStorage.setItem('currentJudge', pendingJudgeName);
+    setCurrentJudge(pendingJudgeName);
+    setViewMode('judge');
   };
-
+  
   const handleOrganizerLogin = () => {
     if (orgPasswordInput === organizerPassword) {
+      localStorage.setItem('viewMode', 'organizer');
+      localStorage.setItem('organizerView', 'true');
       setOrganizerView(true);
       setViewMode('organizer');
     } else {
       alert('Incorrect password');
     }
   };
-
+  
   const handleImport = () => {
     const input = prompt('Paste your exported JSON here:');
     if (input) {
@@ -254,7 +269,32 @@ export default function App() {
     navigator.clipboard.writeText(JSON.stringify(exportData));
     alert('Data copied to clipboard.');
   };
-
+  const handleLogout = () => {
+    localStorage.clear();
+    setCurrentJudge('');
+    setOrganizerView(false);
+    setViewMode('intro');
+  };
+  const refreshAllData = () => {
+    onValue(ref(db, 'events'), (snapshot) => {
+      setEvents(snapshot.val() || []);
+    }, { onlyOnce: true });
+  
+    onValue(ref(db, 'chatMessages'), (snapshot) => {
+      setChatMessages(snapshot.val() || []);
+    }, { onlyOnce: true });
+  
+    onValue(ref(db, 'judgeCodes'), (snapshot) => {
+      setJudgeCodes(snapshot.val() || []);
+    }, { onlyOnce: true });
+  
+    onValue(ref(db, 'organizerPassword'), (snapshot) => {
+      setOrganizerPassword(snapshot.val() || DEFAULT_PASSWORD);
+    }, { onlyOnce: true });
+  
+    alert('✅ Data refreshed from Firebase.');
+  };
+  
   const calcTotalForJudge = (ev, judge, participant) => {
     const scores = ev.scores?.[judge]?.[participant] || {};
     return Object.values(scores).reduce((a, b) => a + Number(b || 0), 0);
@@ -443,9 +483,17 @@ export default function App() {
         <br />
         <small className="credits">made by JCTA</small>
       </h1>
+      {(organizerView || currentJudge) && (
+  <div className="flex-center">
+    <button className="btn-gray" onClick={handleLogout}>🚪 Logout</button>
+  </div>
+)}
 
       {organizerView && (
         <div className="flex-center">
+          <button onClick={refreshAllData} className="btn-gray">
+  🔄 Refresh Data
+</button>
           <button
             onClick={() => setOrganizerView(!organizerView)}
             className="btn-blue"
@@ -622,6 +670,11 @@ export default function App() {
         </>
       ) : (
         <>
+  <div className="flex-center">
+    <button onClick={refreshAllData} className="btn-gray">
+      🔄 Refresh Data
+    </button>
+  </div>
           {events.map(
             (ev, idx) =>
               ev.visibleToJudges &&
