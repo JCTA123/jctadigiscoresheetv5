@@ -60,10 +60,10 @@ export default function App() {
       
     onValue(codesRef, (snapshot) => {
       const val = snapshot.val();
-      console.log('Loaded judgeCodes:', val); // Optional: Debug
-      setJudgeCodes(val || []); // ← Fix for showing codes
+      const codeList = val ? Object.values(val) : [];
+      setJudgeCodes(codeList);
     });
-  
+      
     onValue(passRef, (snapshot) => {
       const val = snapshot.val();
       setOrganizerPassword(val || DEFAULT_PASSWORD); // ← Default fallback
@@ -193,10 +193,17 @@ export default function App() {
   const generateJudgeCode = () => {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     const updatedCodes = [...judgeCodes, code];
-    updateFirebase('judgeCodes', updatedCodes);
+  
+    // Convert array to object for Firebase storage
+    const codeObj = updatedCodes.reduce((acc, val, idx) => {
+      acc[idx] = val;
+      return acc;
+    }, {} as Record<string, string>);
+  
+    updateFirebase('judgeCodes', codeObj);
+    setJudgeCodes(updatedCodes); // ✅ Also update local state
     alert('New Judge Code: ' + code);
-  };
-
+  };  
   const changeOrganizerPassword = () => {
     const newPass = prompt('Enter new password:');
     if (newPass && newPass.length >= 4) {
