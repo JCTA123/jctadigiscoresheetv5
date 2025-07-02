@@ -43,6 +43,20 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'intro' | 'judge' | 'organizer'>(
     'intro'
   );
+  const updateFirebase = (key: string, data: any) => {
+    if (!user) {
+      console.warn("❌ No user. Skipping updateFirebase.");
+      return;
+    }
+    set(ref(db, `users/${user.uid}/${key}`), data)
+      .then(() => {
+        console.log(`✅ Updated Firebase key: ${key}`);
+      })
+      .catch((err) => {
+        console.error("❌ Firebase write failed:", err);
+      });
+  };
+  
   const [orgPasswordInput, setOrgPasswordInput] = useState('');
   const [organizerPassword, setOrganizerPassword] = useState(DEFAULT_PASSWORD);
   const [pendingJudgeName, setPendingJudgeName] = useState('');
@@ -53,36 +67,39 @@ export default function App() {
   const chatRef = useRef(null);
 
   const [user, setUser] = useState(null); // ✅ Firebase Auth user
+  const [authChecked, setAuthChecked] = useState(false);
+  const [requireFreshLogin, setRequireFreshLogin] = useState(true);
 
 
   useEffect(() => {
-    const eventsRef = ref(db, 'events');
-    const chatMessagesRef = ref(db, 'chatMessages');
-    const codesRef = ref(db, 'judgeCodes');
-    const passRef = ref(db, 'organizerPassword');
+    if (!user) return;
+  
+    const base = `users/${user.uid}/`;
+  
+    const eventsRef = ref(db, base + 'events');
+    const chatMessagesRef = ref(db, base + 'chatMessages');
+    const codesRef = ref(db, base + 'judgeCodes');
+    const passRef = ref(db, base + 'organizerPassword');
   
     onValue(eventsRef, (snapshot) => {
-      const val = snapshot.val();
-      setEvents(val || []); // ← Fallback to empty array
+      setEvents(snapshot.val() || []);
     });
   
     onValue(chatMessagesRef, (snapshot) => {
-      const val = snapshot.val();
-      setChatMessages(val || []);
+      setChatMessages(snapshot.val() || []);
     });
-      
+  
     onValue(codesRef, (snapshot) => {
       const val = snapshot.val();
       const codeList = val ? Object.values(val) : [];
       setJudgeCodes(codeList);
     });
-      
-    onValue(passRef, (snapshot) => {
-      const val = snapshot.val();
-      setOrganizerPassword(val || DEFAULT_PASSWORD); // ← Default fallback
-    });
-  }, []);
   
+    onValue(passRef, (snapshot) => {
+      setOrganizerPassword(snapshot.val() || DEFAULT_PASSWORD);
+    });
+  }, [user]);  // 👈 Make sure to re-run when user changes
+      
   useEffect(() => {
     const savedView = localStorage.getItem('viewMode');
     const savedJudge = localStorage.getItem('currentJudge');
@@ -96,20 +113,21 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
+      setAuthChecked(true); // ✅ Mark auth as loaded
+  
       if (!firebaseUser) {
         localStorage.clear();
         setOrganizerView(false);
         setCurrentJudge('');
         setViewMode('intro');
+      } else {
+        setViewMode('intro'); // ✅ Go to judge/organizer choice
       }
     });
+  
     return () => unsubscribe();
   }, []);
-
-  const updateFirebase = (key: string, data: any) => {
-    set(ref(db, key), data);
-  };
-
+    
   const createNewEvent = () => {
     const name = prompt('Enter event name:');
     if (!name) return;
@@ -227,16 +245,17 @@ export default function App() {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     const updatedCodes = [...judgeCodes, code];
   
-    // Convert array to object for Firebase storage
+    // Convert to object for Firebase
     const codeObj = updatedCodes.reduce((acc, val, idx) => {
       acc[idx] = val;
       return acc;
     }, {} as Record<string, string>);
   
     updateFirebase('judgeCodes', codeObj);
-    setJudgeCodes(updatedCodes); // ✅ Also update local state
+    setJudgeCodes(updatedCodes); // ✅ Also update UI
     alert('New Judge Code: ' + code);
-  };  
+  };
+
   const changeOrganizerPassword = () => {
     const newPass = prompt('Enter new password:');
     if (newPass && newPass.length >= 4) {
@@ -281,6 +300,7 @@ export default function App() {
   };
   
   const handleImport = () => {
+    if (!user) return;
     const input = prompt('Paste your exported JSON here:');
     if (input) {
       try {
@@ -288,18 +308,16 @@ export default function App() {
         updateFirebase('events', parsed.events || []);
         updateFirebase('chatMessages', parsed.chatMessages || []);
         updateFirebase('judgeCodes', parsed.judgeCodes || []);
-        updateFirebase(
-          'organizerPassword',
-          parsed.organizerPassword || DEFAULT_PASSWORD
-        );
+        updateFirebase('organizerPassword', parsed.organizerPassword || DEFAULT_PASSWORD);
         alert('Data imported and synced to Firebase.');
       } catch {
         alert('Invalid data.');
       }
     }
   };
-
+  
   const handleExport = () => {
+    if (!user) return;
     const exportData = {
       events,
       chatMessages,
@@ -309,32 +327,38 @@ export default function App() {
     navigator.clipboard.writeText(JSON.stringify(exportData));
     alert('Data copied to clipboard.');
   };
-  const handleLogout = () => {
+    const handleLogout = () => {
     localStorage.clear();
     setCurrentJudge('');
     setOrganizerView(false);
     setViewMode('intro');
   };
   const refreshAllData = () => {
-    onValue(ref(db, 'events'), (snapshot) => {
+    if (!user) return;
+  
+    const base = `users/${user.uid}/`;
+  
+    onValue(ref(db, base + 'events'), (snapshot) => {
       setEvents(snapshot.val() || []);
     }, { onlyOnce: true });
   
-    onValue(ref(db, 'chatMessages'), (snapshot) => {
+    onValue(ref(db, base + 'chatMessages'), (snapshot) => {
       setChatMessages(snapshot.val() || []);
     }, { onlyOnce: true });
   
-    onValue(ref(db, 'judgeCodes'), (snapshot) => {
-      setJudgeCodes(snapshot.val() || []);
+    onValue(ref(db, base + 'judgeCodes'), (snapshot) => {
+      const val = snapshot.val();
+      const codeList = val ? Object.values(val) : [];
+      setJudgeCodes(codeList);
     }, { onlyOnce: true });
   
-    onValue(ref(db, 'organizerPassword'), (snapshot) => {
+    onValue(ref(db, base + 'organizerPassword'), (snapshot) => {
       setOrganizerPassword(snapshot.val() || DEFAULT_PASSWORD);
     }, { onlyOnce: true });
   
     alert('✅ Data refreshed from Firebase.');
   };
-  
+
   const calcTotalForJudge = (ev, judge, participant) => {
     const scores = ev.scores?.[judge]?.[participant] || {};
     return Object.values(scores).reduce((a, b) => a + Number(b || 0), 0);
@@ -455,28 +479,75 @@ export default function App() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       alert("✅ Logged in successfully.");
+      setRequireFreshLogin(false); // (if you're using the previous fix)
+      setViewMode('intro');        // ✅ GO TO judge/organizer menu
     } catch (err) {
       alert("❌ Login failed: " + err.message);
     }
   };
-
+  
   const registerWithEmail = async () => {
     const email = prompt("Enter new email:");
     const password = prompt("Enter new password (min 6 chars):");
     try {
       await createUserWithEmailAndPassword(auth, email, password);
       alert("✅ Registered successfully. You're now logged in.");
+      setRequireFreshLogin(false); // (if applicable)
+      setViewMode('intro');        // ✅ GO TO judge/organizer menu
     } catch (err) {
       alert("❌ Registration failed: " + err.message);
     }
   };
-
+  
   const handleAuthLogout = () => {
     signOut(auth).then(() => {
       alert("👋 Signed out");
+      localStorage.clear();
+      setOrganizerView(false);
+      setCurrentJudge('');
+      setViewMode('intro');
+      setEvents([]);
+      setJudgeCodes([]);
+      setChatMessages([]);
     });
   };
-
+  if (!authChecked) {
+    return (
+      <div className="intro-screen">
+        <h2>⏳ Checking authentication...</h2>
+      </div>
+    );
+  }
+  
+  if (!authChecked) {
+    return (
+      <div className="intro-screen">
+        <h1>🎯 Digital Scoresheet App</h1>
+        <p className="text-center credits">made by JCTA</p>
+        <div className="flex-center">
+          <p>⏳ Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (!user) {
+    return (
+      <div className="intro-screen">
+        <h1>🎯 Digital Scoresheet App</h1>
+        <p className="text-center credits">made by JCTA</p>
+        <div className="flex-center">
+          <button className="btn-purple" onClick={loginWithEmail}>
+            🔐 Login with Email
+          </button>
+          <button className="btn-yellow" onClick={registerWithEmail}>
+            🆕 Register New Account
+          </button>
+        </div>
+      </div>
+    );
+  }
+    
   if (viewMode === 'intro') {
     return (
       <div className="intro-screen">
@@ -486,23 +557,14 @@ export default function App() {
           <button className="btn-blue" onClick={() => setViewMode('judge')}>
             Login as Judge
           </button>
-          <button
-            className="btn-green"
-            onClick={() => setViewMode('organizer')}
-          >
+          <button className="btn-green" onClick={() => setViewMode('organizer')}>
             Login as Organizer
           </button>
-          <button className="btn-purple" onClick={loginWithEmail}>
-    🔐 Login with Email
-  </button>
-  <button className="btn-yellow" onClick={registerWithEmail}>
-    🆕 Register New Account
-  </button>
         </div>
       </div>
     );
   }
-
+  
   if (viewMode === 'organizer' && !organizerView) {
     return (
       <div className="intro-screen">
