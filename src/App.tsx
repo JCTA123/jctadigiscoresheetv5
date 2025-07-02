@@ -7,6 +7,14 @@ import './App.css';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, set } from 'firebase/database';
 
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut
+} from 'firebase/auth';
+
 const firebaseConfig = {
   apiKey: 'AIzaSyBtzd0B3fIDJ8XRM1ESKx3klnGZRtVy0Dg',
   authDomain: 'digital-scoresheet-by-jcta.firebaseapp.com',
@@ -22,6 +30,8 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
 const DEFAULT_PASSWORD = 'JCTA123';
+
+const auth = getAuth(app);
 
 export default function App() {
   const [events, setEvents] = useState([]);
@@ -41,6 +51,9 @@ export default function App() {
   const [tempScores, setTempScores] = useState({});
 
   const chatRef = useRef(null);
+
+  const [user, setUser] = useState(null); // ✅ Firebase Auth user
+
 
   useEffect(() => {
     const eventsRef = ref(db, 'events');
@@ -78,6 +91,19 @@ export default function App() {
     if (savedView) setViewMode(savedView as 'intro' | 'judge' | 'organizer');
     if (savedJudge) setCurrentJudge(savedJudge);
     if (savedOrganizer === 'true') setOrganizerView(true);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      if (!firebaseUser) {
+        localStorage.clear();
+        setOrganizerView(false);
+        setCurrentJudge('');
+        setViewMode('intro');
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   const updateFirebase = (key: string, data: any) => {
@@ -423,6 +449,33 @@ export default function App() {
 
     doc.save(`${ev.name.replace(/\s+/g, '_')}.pdf`);
   };
+  const loginWithEmail = async () => {
+    const email = prompt("Enter email:");
+    const password = prompt("Enter password:");
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      alert("✅ Logged in successfully.");
+    } catch (err) {
+      alert("❌ Login failed: " + err.message);
+    }
+  };
+
+  const registerWithEmail = async () => {
+    const email = prompt("Enter new email:");
+    const password = prompt("Enter new password (min 6 chars):");
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+      alert("✅ Registered successfully. You're now logged in.");
+    } catch (err) {
+      alert("❌ Registration failed: " + err.message);
+    }
+  };
+
+  const handleAuthLogout = () => {
+    signOut(auth).then(() => {
+      alert("👋 Signed out");
+    });
+  };
 
   if (viewMode === 'intro') {
     return (
@@ -439,6 +492,12 @@ export default function App() {
           >
             Login as Organizer
           </button>
+          <button className="btn-purple" onClick={loginWithEmail}>
+    🔐 Login with Email
+  </button>
+  <button className="btn-yellow" onClick={registerWithEmail}>
+    🆕 Register New Account
+  </button>
         </div>
       </div>
     );
@@ -500,6 +559,9 @@ export default function App() {
       {(organizerView || currentJudge) && (
   <div className="flex-center">
     <button className="btn-gray" onClick={handleLogout}>🚪 Logout</button>
+    {user && (
+      <button className="btn-red" onClick={handleAuthLogout}>🔒 Sign Out (Email)</button>
+    )}
   </div>
 )}
 
