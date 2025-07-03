@@ -327,12 +327,21 @@ export default function App() {
     navigator.clipboard.writeText(JSON.stringify(exportData));
     alert('Data copied to clipboard.');
   };
-    const handleLogout = () => {
-    localStorage.clear();
-    setCurrentJudge('');
-    setOrganizerView(false);
-    setViewMode('intro');
+  
+  const handleAuthLogout = () => {
+    signOut(auth).then(() => {
+      alert("👋 Signed out");
+      localStorage.clear();
+      setOrganizerView(false);
+      setCurrentJudge('');
+      setViewMode('intro');
+      setEvents([]);
+      setJudgeCodes([]);
+      setChatMessages([]);
+      setRequireFreshLogin(true); // 👈 Add this
+    });
   };
+  
   const refreshAllData = () => {
     if (!user) return;
   
@@ -499,18 +508,6 @@ export default function App() {
     }
   };
   
-  const handleAuthLogout = () => {
-    signOut(auth).then(() => {
-      alert("👋 Signed out");
-      localStorage.clear();
-      setOrganizerView(false);
-      setCurrentJudge('');
-      setViewMode('intro');
-      setEvents([]);
-      setJudgeCodes([]);
-      setChatMessages([]);
-    });
-  };
   if (!authChecked) {
     return (
       <div className="intro-screen">
@@ -531,7 +528,7 @@ export default function App() {
     );
   }
   
-  if (!user) {
+  if (!user || requireFreshLogin) {
     return (
       <div className="intro-screen">
         <h1>🎯 Digital Scoresheet App</h1>
@@ -547,7 +544,7 @@ export default function App() {
       </div>
     );
   }
-    
+  
   if (viewMode === 'intro') {
     return (
       <div className="intro-screen">
