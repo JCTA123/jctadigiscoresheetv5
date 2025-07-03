@@ -341,6 +341,15 @@ export default function App() {
       setRequireFreshLogin(true); // 👈 Add this
     });
   };
+  const handleLogout = () => {
+    localStorage.clear();
+    setOrganizerView(false);
+    setCurrentJudge('');
+    setViewMode('intro');
+    setEvents([]);
+    setJudgeCodes([]);
+    setChatMessages([]);
+  };
   
   const refreshAllData = () => {
     if (!user) return;
@@ -716,7 +725,7 @@ export default function App() {
           </div>
         </div>
       )}
-      {organizerView ? (
+      {viewMode === 'organizer' && organizerView ? (
         <>
           {events.map((ev, idx) => (
             <div key={idx} className="card">
