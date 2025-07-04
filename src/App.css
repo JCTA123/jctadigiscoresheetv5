@@ -691,3 +691,19 @@ td {
   color: #888;
   font-style: italic;
 }
+/* === FIX: Prevent Overlap in Judge Scoring Tables === */
+.score-table-wrapper {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+table {
+  table-layout: auto; /* Allow columns to auto-size */
+}
+
+td input[type='number'] {
+  min-width: 60px;
+  max-width: 80px;
+  width: 100%;
+  box-sizing: border-box;
+}
