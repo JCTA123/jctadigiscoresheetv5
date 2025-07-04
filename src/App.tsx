@@ -70,7 +70,11 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [requireFreshLogin, setRequireFreshLogin] = useState(true);
 
-
+  useEffect(() => {
+    console.log("✅ viewMode:", viewMode);
+    console.log("✅ organizerView:", organizerView);
+  }, [viewMode, organizerView]);
+  
   useEffect(() => {
     if (!user) return;
   
@@ -101,6 +105,8 @@ export default function App() {
   }, [user]);  // 👈 Make sure to re-run when user changes
       
   useEffect(() => {
+    if (!authChecked || !user) return;
+  
     const savedView = localStorage.getItem('viewMode');
     const savedJudge = localStorage.getItem('currentJudge');
     const savedOrganizer = localStorage.getItem('organizerView');
@@ -108,12 +114,12 @@ export default function App() {
     if (savedView) setViewMode(savedView as 'intro' | 'judge' | 'organizer');
     if (savedJudge) setCurrentJudge(savedJudge);
     if (savedOrganizer === 'true') setOrganizerView(true);
-  }, []);
-
+  }, [authChecked, user]);
+  
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
-      setAuthChecked(true); // ✅ Mark auth as loaded
+      setAuthChecked(true);
   
       if (!firebaseUser) {
         localStorage.clear();
@@ -121,13 +127,21 @@ export default function App() {
         setCurrentJudge('');
         setViewMode('intro');
       } else {
-        setViewMode('intro'); // ✅ Go to judge/organizer choice
+        setTimeout(() => {
+          const savedView = localStorage.getItem('viewMode');
+          const savedJudge = localStorage.getItem('currentJudge');
+          const savedOrganizer = localStorage.getItem('organizerView');
+      
+          if (savedView) setViewMode(savedView as 'intro' | 'judge' | 'organizer');
+          if (savedJudge) setCurrentJudge(savedJudge);
+          if (savedOrganizer === 'true') setOrganizerView(true);
+        }, 100);
       }
     });
   
-    return () => unsubscribe();
+    return () => unsubscribe(); // ✅ CORRECTLY outside
   }, []);
-    
+      
   const createNewEvent = () => {
     const name = prompt('Enter event name:');
     if (!name) return;
@@ -137,7 +151,7 @@ export default function App() {
         name,
         participants: ['Alice', 'Bob'],
         judges: ['Judge 1'],
-        criteria: ['Creativity'],
+        criteria: [{ name: 'Creativity', max: 10 }],
         scores: {},
         visibleToJudges: false,
         resultsVisibleToJudges: false, // ✅ NEW FIELD
@@ -520,14 +534,6 @@ export default function App() {
   if (!authChecked) {
     return (
       <div className="intro-screen">
-        <h2>⏳ Checking authentication...</h2>
-      </div>
-    );
-  }
-  
-  if (!authChecked) {
-    return (
-      <div className="intro-screen">
         <h1>🎯 Digital Scoresheet App</h1>
         <p className="text-center credits">made by JCTA</p>
         <div className="flex-center">
@@ -563,10 +569,17 @@ export default function App() {
           <button className="btn-blue" onClick={() => setViewMode('judge')}>
             Login as Judge
           </button>
-          <button className="btn-green" onClick={() => setViewMode('organizer')}>
-            Login as Organizer
-          </button>
-        </div>
+          <button
+  className="btn-green"
+  onClick={() => {
+    setOrganizerView(false); // ✅ Force password screen to appear
+    setViewMode('organizer');
+  }}
+>
+  Login as Organizer
+</button>
+
+                  </div>
       </div>
     );
   }
@@ -616,319 +629,336 @@ export default function App() {
       </div>
     );
   }
+return (
+  <div className="app-container">
+{viewMode === 'organizer' && organizerView ? (
+  <>
+  <div className="top-bar">
+  <h1>🎯 Digital Scoresheet App</h1>
+  <p className="text-center credits">made by JCTA</p>
 
-  return (
-    <div className="app-container">
-      <h1 className="text-center">
-        🎯 Digital Scoresheet App
-        <br />
-        <small className="credits">made by JCTA</small>
-      </h1>
-      {(organizerView || currentJudge) && (
   <div className="flex-center">
-    <button className="btn-gray" onClick={handleLogout}>🚪 Logout</button>
-    {user && (
-      <button className="btn-red" onClick={handleAuthLogout}>🔒 Sign Out (Email)</button>
-    )}
+    <button className="btn-green" onClick={createNewEvent}>
+      ➕ Add Event
+    </button>
+    <button className="btn-purple" onClick={handleImport}>
+      📥 Import
+    </button>
+    <button className="btn-purple" onClick={handleExport}>
+      📤 Export ▼
+    </button>
+    <button className="btn-yellow" onClick={generateJudgeCode}>
+      🎫 Generate Judge Code
+    </button>
+    <button className="btn-blue" onClick={changeOrganizerPassword}>
+      🔐 Change Password
+    </button>
+    <button className="btn-gray" onClick={refreshAllData}>
+      🔄 Refresh
+    </button>
+    <button className="btn-gray" onClick={() => setViewMode('judge')}>
+      👨‍⚖️ Switch to Judge View
+    </button>
+    <button className="btn-red" onClick={handleAuthLogout}>
+      🚪 Logout
+    </button>
   </div>
-)}
 
-      {organizerView && (
+  {/* Active Judge Codes */}
+  <div className="card">
+    <h3>🎟️ Active Judge Codes:</h3>
+    <ul>
+      {judgeCodes.length === 0 ? (
+        <li>No codes yet</li>
+      ) : (
+        judgeCodes.map((code, i) => <li key={i}>{code}</li>)
+      )}
+    </ul>
+  </div>
+</div>
+
+    {events.length === 0 ? (
+      <p className="text-center">📭 No events yet. Click "➕ Add Event" to begin.</p>
+    ) : (
+      events.map((ev, idx) => {
+        const safeCriteria = ev.criteria.map(c =>
+          typeof c === 'string' ? { name: c, max: 10 } : c
+        );
+        return (
+          <div key={idx} className="card">
+            <div className="flex-center">
+              <h2>{ev.name}</h2>
+              <button
+                onClick={() => toggleVisibility(idx)}
+                className={ev.visibleToJudges ? 'btn-red' : 'btn-green'}
+              >
+                {ev.visibleToJudges ? 'Hide from Judges' : 'Show to Judges'}
+              </button>
+              <button onClick={() => deleteEvent(idx)} className="btn-red">
+                ❌ Delete
+              </button>
+            </div>
+
+            <div className="flex-center">
+              <button
+                className="btn-purple"
+                onClick={() =>
+                  promptEditList('Edit Participants', ev.participants, (newList) =>
+                    updateEvent(idx, { ...ev, participants: newList })
+                  )
+                }
+              >
+                👥 Participants
+              </button>
+              <button
+                className="btn-yellow"
+                onClick={() =>
+                  promptEditList('Edit Judges', ev.judges, (newList) =>
+                    updateEvent(idx, { ...ev, judges: newList })
+                  )
+                }
+              >
+                🧑‍⚖️ Judges
+              </button>
+              <button
+                className="btn-blue"
+                onClick={() =>
+                  promptEditList(
+                    'Edit Criteria (use format: Creativity (10))',
+                    ev.criteria.map(c => typeof c === 'string' ? c : `${c.name} (${c.max})`),
+                    (newList) =>
+                      updateEvent(idx, {
+                        ...ev,
+                        criteria: newList.map((entry) => {
+                          const match = entry.match(/(.+?)\s*\((\d+)\)/);
+                          if (match) {
+                            return { name: match[1].trim(), max: parseInt(match[2]) };
+                          }
+                          return { name: entry.trim(), max: 10 };
+                        }),
+                      })
+                  )
+                }
+              >
+                📋 Criteria
+              </button>
+              <button
+                className="btn-gray"
+                onClick={() => toggleResultsVisibility(idx)}
+              >
+                {ev.resultsVisibleToJudges
+                  ? '🙈 Hide Results from Judges'
+                  : '👁️ Show Results to Judges'}
+              </button>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Participant</th>
+                  {ev.judges.map((j, jdx) => (
+                    <th key={jdx}>{j}</th>
+                  ))}
+                  <th>Total</th>
+                  <th>Average</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ev.participants.map((p, pdx) => (
+                  <tr key={pdx}>
+                    <td>{p}</td>
+                    {ev.judges.map((j, jdx) => (
+                      <td key={jdx}>{calcTotalForJudge(ev, j, p)}</td>
+                    ))}
+                    <td>{calcTotalAllJudges(ev, p)}</td>
+                    <td>{calcAvg(ev, p)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {ev.resultsVisibleToJudges && renderSummary(ev)}
+          </div>
+        );
+      })
+    )}
+  </>
+) : (
+
+      <>
         <div className="flex-center">
           <button onClick={refreshAllData} className="btn-gray">
-  🔄 Refresh Data
-</button>
-          <button
-            onClick={() => setOrganizerView(!organizerView)}
-            className="btn-blue"
-          >
-            Switch to {organizerView ? 'Judge' : 'Organizer'} View
+            🔄 Refresh Data
           </button>
-          <button onClick={createNewEvent} className="btn-green">
-            ➕ Add Event
-          </button>
-          <button onClick={handleImport} className="btn-yellow">
-            📥 Import
-          </button>
-          <div className="dropdown-export">
-            <button className="btn-purple">📤 Export ▼</button>
-            <div className="dropdown-content">
-              <button onClick={handleExport}>📋 Backup JSON</button>
-              <button onClick={exportOverallSummaryPDF}>
-                🏆 Export Overall Rankings PDF
-              </button>
-              <button onClick={exportPerJudgePDF}>
-                🧑‍⚖️ Export Per-Judge Results PDF
-              </button>
-              <button onClick={exportSpecificEventPDF}>
-                📄 Export Specific Event PDF
-              </button>
-            </div>
-          </div>
         </div>
-      )}
+        <div className="top-bar">
+  <h1>🎯 Digital Scoresheet App</h1>
+  <p className="text-center credits">made by JCTA</p>
 
-      {organizerView && (
-        <div className="organizer-controls">
-          <button onClick={generateJudgeCode} className="btn-blue">
-            🎫 Generate Judge Code
-          </button>
-          <button onClick={changeOrganizerPassword} className="btn-red">
-            🔐 Change Password
-          </button>
-          <div className="codes-list">
-            <h4>Active Judge Codes:</h4>
-            <ul>
-              {judgeCodes.map((code, idx) => (
-                <li key={idx}>
-                  {code}{' '}
-                  <button
-                    className="btn-red"
-                    style={{ padding: '2px 6px', marginLeft: '8px' }}
-                    onClick={() => {
-                      const updated = judgeCodes.filter((_, i) => i !== idx);
-                      updateFirebase('judgeCodes', updated);
-                    }}
-                  >
-                    ❌
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
+  <div className="flex-center">
+    {organizerView && (
+      <>
+        <button className="btn-yellow" onClick={generateJudgeCode}>
+          🎫 Generate Judge Code
+        </button>
+        <button className="btn-blue" onClick={changeOrganizerPassword}>
+          🔐 Change Password
+        </button>
+        <button className="btn-green" onClick={createNewEvent}>
+          ➕ Add Event
+        </button>
+        <button className="btn-purple" onClick={handleImport}>
+          📥 Import
+        </button>
+        <button className="btn-purple" onClick={handleExport}>
+          📤 Export ▼
+        </button>
+        <button className="btn-gray" onClick={() => setViewMode('judge')}>
+          🔁 Switch to Judge View
+        </button>
+      </>
+    )}
 
-      {/* Chat Section */}
-      <div className="chat-toggle" onClick={() => setChatOpen(!chatOpen)}>
-        💬 Chat {chatOpen ? '▲' : '▼'}
-      </div>
-      {chatOpen && (
-        <div className="chat-box" ref={chatRef}>
-          {chatMessages.map((msg, idx) => (
-            <div
-              key={idx}
-              className={`chat-message ${
-                msg.sender === 'Organizer' ? 'organizer' : 'judge'
-              }`}
-            >
-              <strong>{msg.sender}:</strong> {msg.text}
-            </div>
-          ))}
-          <div className="chat-input">
-            <input
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="Type message..."
-            />
-            <button onClick={handleSendMessage}>Send</button>
-          </div>
-        </div>
-      )}
-      {viewMode === 'organizer' && organizerView ? (
-        <>
-          {events.map((ev, idx) => (
+    <button className="btn-gray" onClick={refreshAllData}>
+      🔄 Refresh Data
+    </button>
+
+    <button className="btn-red" onClick={handleAuthLogout}>
+      🚪 Logout
+    </button>
+  </div>
+
+  {organizerView && (
+    <div className="card">
+      <h3>Active Judge Codes:</h3>
+      <ul>
+        {judgeCodes.map((code, i) => (
+          <li key={i}>{code}</li>
+        ))}
+      </ul>
+    </div>
+  )}
+</div>
+        {events.map((ev, idx) => {
+          const isJudgeAllowed = ev.judges
+            .map((j) => j.toLowerCase())
+            .includes(currentJudge.trim().toLowerCase());
+
+          if (!ev.visibleToJudges || !isJudgeAllowed) return null;
+
+          const safeCriteria = ev.criteria.map((c) => {
+            if (typeof c === 'string') {
+              const match = c.match(/^(.*?)(?:\s*\((\d+)\))?$/);
+              return {
+                name: match?.[1]?.trim() || c,
+                max: match?.[2] ? parseInt(match[2]) : 10,
+              };
+            }
+            return c;
+          });
+
+          return (
             <div key={idx} className="card">
-              <div className="flex-center">
-                <h2>{ev.name}</h2>
-                <button
-                  onClick={() => toggleVisibility(idx)}
-                  className={ev.visibleToJudges ? 'btn-red' : 'btn-green'}
-                >
-                  {ev.visibleToJudges ? 'Hide from Judges' : 'Show to Judges'}
-                </button>
-                <button onClick={() => deleteEvent(idx)} className="btn-red">
-                  ❌ Delete
-                </button>
-              </div>
-              <div className="flex-center">
-                <button
-                  className="btn-purple"
-                  onClick={() =>
-                    promptEditList(
-                      'Edit Participants',
-                      ev.participants,
-                      (newList) =>
-                        updateEvent(idx, { ...ev, participants: newList })
-                    )
-                  }
-                >
-                  👥 Participants
-                </button>
-                <button
-                  className="btn-yellow"
-                  onClick={() =>
-                    promptEditList('Edit Judges', ev.judges, (newList) =>
-                      updateEvent(idx, { ...ev, judges: newList })
-                    )
-                  }
-                >
-                  🧑‍⚖️ Judges
-                </button>
-                <button
-                  className="btn-blue"
-                  onClick={() =>
-                    promptEditList('Edit Criteria', ev.criteria, (newList) =>
-                      updateEvent(idx, { ...ev, criteria: newList })
-                    )
-                  }
-                >
-                  📋 Criteria
-                </button>
-                <button
-                  className="btn-gray"
-                  onClick={() => toggleResultsVisibility(idx)}
-                >
-                  {ev.resultsVisibleToJudges
-                    ? '🙈 Hide Results from Judges'
-                    : '👁️ Show Results to Judges'}
-                </button>
-              </div>
+              <h2>{ev.name}</h2>
               <table>
                 <thead>
                   <tr>
                     <th>Participant</th>
-                    {ev.judges.map((j, jdx) => (
-                      <th key={jdx}>{j}</th>
+                    {safeCriteria.map((c, cdx) => (
+                      <th key={cdx}>
+                        {c.name} ({c.max})
+                      </th>
                     ))}
                     <th>Total</th>
-                    <th>Average</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ev.participants.map((p, pdx) => (
                     <tr key={pdx}>
                       <td>{p}</td>
-                      {ev.judges.map((j, jdx) => (
-                        <td key={jdx}>{calcTotalForJudge(ev, j, p)}</td>
+                      {safeCriteria.map((c, cdx) => (
+                        <td key={cdx}>
+                          <input
+                            type="number"
+                            min={0}
+                            max={c.max}
+                            value={
+                              tempScores?.[idx]?.[p]?.[c.name] ??
+                              ev.scores?.[currentJudge]?.[p]?.[c.name] ??
+                              ''
+                            }
+                            disabled={ev.submittedJudges?.includes(currentJudge)}
+                            onChange={(e) => {
+                              const newVal = e.target.value;
+                              if (Number(newVal) <= c.max) {
+                                setTempScores((prev) => ({
+                                  ...prev,
+                                  [idx]: {
+                                    ...(prev[idx] || {}),
+                                    [p]: {
+                                      ...(prev[idx]?.[p] || {}),
+                                      [c.name]: newVal,
+                                    },
+                                  },
+                                }));
+                              }
+                            }}
+                            onBlur={(e) => {
+                              const val = tempScores?.[idx]?.[p]?.[c.name];
+                              if (val !== undefined && val !== '') {
+                                handleInputScore(
+                                  idx,
+                                  currentJudge,
+                                  p,
+                                  c.name,
+                                  Number(val)
+                                );
+                              }
+                            }}
+                          />
+                        </td>
                       ))}
-                      <td>{calcTotalAllJudges(ev, p)}</td>
-                      <td>{calcAvg(ev, p)}</td>
+                      <td>{calcTotalForJudge(ev, currentJudge, p)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {ev.resultsVisibleToJudges && renderSummary(ev)}
+
+              {!ev.submittedJudges?.includes(currentJudge) ? (
+                <button
+                  className="btn-green"
+                  onClick={() => handleSubmitScores(idx)}
+                >
+                  Submit Scores
+                </button>
+              ) : (
+                <>
+                  <p className="submitted-label">
+                    Submitted. You can view but not change scores.
+                  </p>
+                  {ev.resultsVisibleToJudges && renderSummary(ev)}
+                </>
+              )}
             </div>
-          ))}
-        </>
-      ) : (
-        <>
-  <div className="flex-center">
-    <button onClick={refreshAllData} className="btn-gray">
-      🔄 Refresh Data
-    </button>
-  </div>
-          {events.map(
-            (ev, idx) =>
-              ev.visibleToJudges &&
-              ev.judges
-                .map((j) => j.toLowerCase())
-                .includes(currentJudge.trim().toLowerCase()) && (
-                <div key={idx} className="card">
-                  <h2>{ev.name}</h2>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Participant</th>
-                        {ev.criteria.map((c, cdx) => (
-                          <th key={cdx}>{c}</th>
-                        ))}
-                        <th>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ev.participants.map((p, pdx) => (
-                        <tr key={pdx}>
-                          <td>{p}</td>
-                          {ev.criteria.map((c, cdx) => (
-                            <td key={cdx}>
-                              <input
-                                type="number"
-                                value={
-                                  tempScores?.[idx]?.[p]?.[c] ??
-                                  ev.scores?.[currentJudge]?.[p]?.[c] ??
-                                  ''
-                                }
-                                disabled={ev.submittedJudges?.includes(
-                                  currentJudge
-                                )}
-                                onChange={(e) => {
-                                  const newVal = e.target.value;
-                                  setTempScores((prev) => ({
-                                    ...prev,
-                                    [idx]: {
-                                      ...(prev[idx] || {}),
-                                      [p]: {
-                                        ...(prev[idx]?.[p] || {}),
-                                        [c]: newVal,
-                                      },
-                                    },
-                                  }));
-                                }}
-                                onBlur={(e) => {
-                                  const val = tempScores?.[idx]?.[p]?.[c];
-                                  if (val !== undefined && val !== '') {
-                                    handleInputScore(
-                                      idx,
-                                      currentJudge,
-                                      p,
-                                      c,
-                                      Number(val)
-                                    );
-                                  }
-                                }}
-                              />
-                            </td>
-                          ))}
-                          <td>{calcTotalForJudge(ev, currentJudge, p)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {!ev.submittedJudges?.includes(currentJudge) ? (
-                    <button
-                      className="btn-green"
-                      onClick={() => handleSubmitScores(idx)}
-                    >
-                      Submit Scores
-                    </button>
-                  ) : (
-                    <>
-                      <p className="submitted-label">
-                        Submitted. You can view but not change scores.
-                      </p>
-                      {ev.resultsVisibleToJudges && renderSummary(ev)}
-                    </>
-                  )}
-                </div>
-              )
-          )}
-        </>
-      )}
+          );
+        })}
+      </>
+    )}
 
-      {/* Watermark - binary-encoded signature */}
-      <div style={{ display: 'none' }}>
-        {Array.from('JOHN CARL TABANAO ALCORIN ')
-          .map((char) => char.charCodeAt(0).toString(2))
-          .join(' ')}
-      </div>
+    {/* Watermark */}
+    <div style={{ display: 'none' }}>
+      {Array.from('JOHN CARL TABANAO ALCORIN')
+        .map((char) => char.charCodeAt(0).toString(2))
+        .join(' ')}
     </div>
-  );
-}
+  </div> // <-- closes .app-container
+);       // <-- closes the return
 
-// Utility function: editable list prompt
-function promptEditList(
-  title: string,
-  oldList: string[],
-  callback: (newList: string[]) => void
-) {
-  const input = prompt(`${title} (comma-separated):`, oldList.join(', '));
-  if (input !== null) {
-    const newList = input
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+const promptEditList = (title, list, callback) => {
+  const input = prompt(`${title} (comma separated):`, list.join(', '));
+  if (input != null) {
+    const newList = input.split(',').map((s) => s.trim()).filter(Boolean);
     callback(newList);
   }
-}
+};
+  }

@@ -707,3 +707,22 @@ td input[type='number'] {
   width: 100%;
   box-sizing: border-box;
 }
+.top-bar {
+  margin-bottom: 20px;
+  text-align: center;
+}
+.top-bar h1 {
+  font-size: 2rem;
+  margin: 0.5em 0 0;
+}
+.top-bar .credits {
+  font-size: 0.9rem;
+  color: gray;
+}
+.top-bar .flex-center {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+}
