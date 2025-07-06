@@ -656,9 +656,15 @@ return (
     <button className="btn-gray" onClick={refreshAllData}>
       🔄 Refresh
     </button>
-    <button className="btn-gray" onClick={() => setViewMode('judge')}>
-      👨‍⚖️ Switch to Judge View
-    </button>
+    <button
+  className="btn-gray"
+  onClick={() => {
+    setOrganizerView(false); // 👈 ADD THIS LINE TOO
+    setViewMode('judge');
+  }}
+>
+  👨‍⚖️ Switch to Judge View
+</button>
     <button className="btn-red" onClick={handleAuthLogout}>
       🚪 Logout
     </button>
@@ -786,11 +792,14 @@ return (
 ) : (
 
       <>
-        <div className="flex-center">
-          <button onClick={refreshAllData} className="btn-gray">
-            🔄 Refresh Data
-          </button>
-        </div>
+{viewMode === 'organizer' && organizerView && (
+  <div className="flex-center">
+    <button onClick={refreshAllData} className="btn-gray">
+      🔄 Refresh Data
+    </button>
+  </div>
+)}
+
         <div className="top-bar">
   <h1>🎯 Digital Scoresheet App</h1>
   <p className="text-center credits">made by JCTA</p>
@@ -813,10 +822,17 @@ return (
         <button className="btn-purple" onClick={handleExport}>
           📤 Export ▼
         </button>
-        <button className="btn-gray" onClick={() => setViewMode('judge')}>
-          🔁 Switch to Judge View
-        </button>
-      </>
+        <button
+  className="btn-gray"
+  onClick={() => {
+    setOrganizerView(false); // 👈 ADD THIS LINE TOO
+    setViewMode('judge');
+  }}
+>
+  👨‍⚖️ Switch to Judge View
+</button>
+
+              </>
     )}
 
     <button className="btn-gray" onClick={refreshAllData}>
