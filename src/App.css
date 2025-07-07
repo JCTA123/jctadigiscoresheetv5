@@ -127,6 +127,40 @@ button:hover {
 .card:hover {
   transform: scale(1.01);
 }
+/* 🔽 Export Dropdown Styles */
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background: #fff;
+  min-width: 220px;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+  z-index: 1000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.dropdown-content button {
+  padding: 10px;
+  width: 100%;
+  background: white;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.dropdown-content button:hover {
+  background-color: #eee;
+}
+
+.dropdown:hover .dropdown-content {
+  display: block;
+}
 
 /* Tables */
 table {
@@ -743,4 +777,158 @@ td input[type='number'] {
   font-size: 1.2em;
   color: #888;
   margin-top: 2rem;
+}
+.chat-box {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  max-width: 300px;
+  z-index: 999;
+}
+
+.chat-window {
+  background: #ffffffdd;
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.chat-messages {
+  max-height: 150px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+.chat-input {
+  display: flex;
+  gap: 5px;
+}
+/* === Majestic Rankings Styling === */
+.summary-table {
+  margin-top: 30px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 20px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  animation: fadeInScale 0.8s ease-out;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.summary-table table {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.summary-table th,
+.summary-table td {
+  padding: 14px;
+  border: 1px solid #dcdde1;
+  font-size: 16px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+/* --- Top 3 Rank Special Styling --- */
+.rank-1 td {
+  background: linear-gradient(145deg, #f9d976, #f39c12);
+  color: #2d3436;
+  font-weight: bold;
+  font-size: 1.1em;
+  box-shadow: inset 0 0 10px #f5e79e;
+  border-top: 3px solid gold;
+}
+
+.rank-2 td {
+  background: linear-gradient(145deg, #dcdde1, #bdc3c7);
+  color: #2d3436;
+  font-weight: bold;
+  box-shadow: inset 0 0 8px #dfe4ea;
+  border-top: 3px solid silver;
+}
+
+.rank-3 td {
+  background: linear-gradient(145deg, #f5cda7, #e67e22);
+  color: #2d3436;
+  font-weight: bold;
+  box-shadow: inset 0 0 8px #f8d3b0;
+  border-top: 3px solid #cd7f32;
+}
+
+/* --- Other Ranks --- */
+.summary-table tr:not(.rank-1):not(.rank-2):not(.rank-3) td {
+  background: rgba(255, 255, 255, 0.85);
+  color: #2f3640;
+  font-size: 15px;
+}
+/* Majestic Rankings Table */
+.majestic-ranking-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 20px;
+  background: linear-gradient(to bottom, #f1f2f6, #dcdde1);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+}
+
+.majestic-ranking-table th {
+  background: #2f3640;
+  color: white;
+  padding: 14px;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.majestic-ranking-table td {
+  padding: 12px;
+  background: white;
+  border-bottom: 1px solid #dcdde1;
+  text-align: center;
+  font-size: 15px;
+  transition: background 0.3s ease;
+}
+
+.majestic-ranking-table tr:hover td {
+  background: #f6f6f6;
+}
+
+.majestic-ranking-table .rank-1 td {
+  background: #ffeaa7;
+  font-weight: bold;
+  color: #2f3640;
+}
+
+.majestic-ranking-table .rank-2 td {
+  background: #dff9fb;
+  font-weight: bold;
+  color: #192a56;
+}
+
+.majestic-ranking-table .rank-3 td {
+  background: #f6e58d;
+  font-weight: bold;
+  color: #2d3436;
+}
+
+/* Emoji inside Rank column */
+.rank-emoji {
+  font-size: 1.4rem;
+  margin-right: 5px;
 }
