@@ -68,7 +68,6 @@ export default function App() {
 
   const [user, setUser] = useState(null); // ✅ Firebase Auth user
   const [authChecked, setAuthChecked] = useState(false);
-  const [requireFreshLogin, setRequireFreshLogin] = useState(true);
 
   useEffect(() => {
     console.log("✅ viewMode:", viewMode);
@@ -120,6 +119,9 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setAuthChecked(true);
+      if (firebaseUser) {
+        refreshAllData(); // Automatically pulls the latest data
+      }      
   
       if (!firebaseUser) {
         localStorage.clear();
@@ -352,7 +354,6 @@ export default function App() {
       setEvents([]);
       setJudgeCodes([]);
       setChatMessages([]);
-      setRequireFreshLogin(true); // 👈 Add this
     });
   };
   const handleLogout = () => {
@@ -414,148 +415,59 @@ export default function App() {
         avg: Number(calcAvg(ev, p)),
       }))
       .sort((a, b) => b.avg - a.avg);
-  
-    const getEmoji = (idx) => {
-      if (idx === 0) return '🥇';
-      if (idx === 1) return '🥈';
-      if (idx === 2) return '🥉';
-      return '';
-    };
-  
+
     return (
       <div className="summary-box">
-        <h3>🏅 Rankings (Average of All Judges)</h3>
-        <table className="majestic-ranking-table">
-          <thead>
-            <tr>
-              <th>Rank</th>
-              <th>Entry Name</th>
-              <th>Average Score</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ranked.map((r, idx) => (
-              <tr key={idx} className={`rank-${idx + 1}`}>
-                <td>
-                  <span className="rank-emoji">{getEmoji(idx)}</span>
-                  {idx + 1}
-                </td>
-                <td>{r.name}</td>
-                <td>{r.avg.toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <h3>🏅 Rankings (Based on Averages)</h3>
+        <ol>
+          {ranked.map((r, idx) => (
+            <li key={idx}>
+              {r.name} — {r.avg.toFixed(2)}
+            </li>
+          ))}
+        </ol>
       </div>
     );
   };
-  
+
   const exportOverallSummaryPDF = () => {
     const doc = new jsPDF();
-    const margin = 14;
-    const spacing = 10;
-  
-    doc.setFontSize(16);
-    doc.setTextColor('#3c3c3c');
-    doc.setFont('helvetica', 'bold');
-    doc.text('🏆 Overall Rankings (Averaged by All Judges)', margin, 20);
-  
-    let currentY = 30;
-  
-    events.forEach((ev, index) => {
+    doc.text('Overall Rankings (by Average)', 14, 14);
+    events.forEach((ev, i) => {
       const ranked = ev.participants
         .map((p) => ({
           name: p,
           avg: Number(calcAvg(ev, p)),
         }))
         .sort((a, b) => b.avg - a.avg);
-  
+
       autoTable(doc, {
-        startY: currentY,
-        theme: 'grid',
-        head: [[`🎯 ${ev.name}`, 'Average']],
-        body: ranked.map((r, i) => [
-          `${i + 1}. ${r.name}`,
-          r.avg.toFixed(2)
+        startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 20,
+        head: [[`🏆 ${ev.name}`]],
+        body: ranked.map((r, idx) => [
+          `${idx + 1}. ${r.name} — ${r.avg.toFixed(2)}`,
         ]),
-        headStyles: {
-          fillColor: [63, 81, 181], // Indigo
-          textColor: [255, 255, 255],
-          halign: 'center',
-          fontSize: 12
-        },
-        bodyStyles: {
-          fillColor: [240, 248, 255], // AliceBlue
-          textColor: [60, 60, 60],
-          fontSize: 11
-        },
-        columnStyles: {
-          0: { cellPadding: 5, halign: 'left' },
-          1: { halign: 'center' }
-        },
-        styles: {
-          cellPadding: 6,
-          lineWidth: 0.1,
-          lineColor: [200, 200, 200]
-        }
       });
-  
-      currentY = (doc.lastAutoTable?.finalY || currentY) + spacing;
     });
-  
     doc.save('overall_summary.pdf');
   };
-  
+
   const exportPerJudgePDF = () => {
     const doc = new jsPDF();
-    const margin = 14;
-    let currentY = 20;
-  
-    doc.setFontSize(16);
-    doc.setTextColor('#2c2c2c');
-    doc.setFont('helvetica', 'bold');
-    doc.text('👨‍⚖️ Per-Judge Scoring Summary', margin, currentY);
-    currentY += 10;
-  
-    events.forEach((ev) => {
+    doc.text('Per-Judge Scoring Summary', 14, 14);
+    events.forEach((ev, i) => {
       ev.judges.forEach((j) => {
         autoTable(doc, {
-          startY: currentY,
-          theme: 'grid',
-          head: [[`🎯 ${ev.name}`, `Judge: ${j}`]],
+          startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 20,
+          head: [[`👨‍⚖️ ${j} — ${ev.name}`]],
           body: ev.participants.map((p) => [
-            p,
-            calcTotalForJudge(ev, j, p).toFixed(2),
+            `${p}: ${calcTotalForJudge(ev, j, p)}`,
           ]),
-          headStyles: {
-            fillColor: [0, 150, 136], // Teal
-            textColor: [255, 255, 255],
-            fontSize: 12,
-            halign: 'center'
-          },
-          bodyStyles: {
-            fillColor: [250, 250, 250],
-            textColor: [40, 40, 40],
-            fontSize: 11
-          },
-          columnStyles: {
-            0: { cellPadding: 5, halign: 'left' },
-            1: { halign: 'center' }
-          },
-          styles: {
-            lineWidth: 0.1,
-            lineColor: [200, 200, 200],
-            cellPadding: 5
-          }
         });
-  
-        currentY = (doc.lastAutoTable?.finalY || currentY) + 10;
       });
     });
-  
     doc.save('per_judge_results.pdf');
   };
-  
   const exportSpecificEventPDF = () => {
     const evName = prompt('Enter exact event name:');
     const ev = events.find((e) => e.name === evName);
@@ -563,90 +475,43 @@ export default function App() {
       alert('Event not found.');
       return;
     }
-  
+
     const doc = new jsPDF();
-    let currentY = 20;
-  
-    doc.setFontSize(16);
-    doc.setTextColor('#333');
-    doc.setFont('helvetica', 'bold');
-    doc.text(`📋 ${ev.name} – Complete Scoring Summary`, 14, currentY);
-    currentY += 10;
-  
+    doc.text(`📄 ${ev.name} – Scoring Summary (by Average)`, 14, 14);
+
     autoTable(doc, {
-      startY: currentY,
-      theme: 'grid',
-      head: [[
-        'Participant',
-        ...ev.judges.map(j => `👨‍⚖️ ${j}`),
-        'Total',
-        'Average'
-      ]],
+      head: [['Participant', ...ev.judges, 'Total', 'Average']],
       body: ev.participants.map((p) => [
         p,
-        ...ev.judges.map((j) => calcTotalForJudge(ev, j, p).toFixed(2)),
-        calcTotalAllJudges(ev, p).toFixed(2),
-        calcAvg(ev, p)
+        ...ev.judges.map((j) => calcTotalForJudge(ev, j, p)),
+        calcTotalAllJudges(ev, p),
+        calcAvg(ev, p),
       ]),
-      headStyles: {
-        fillColor: [63, 81, 181], // Indigo
-        textColor: [255, 255, 255],
-        fontSize: 12
-      },
-      bodyStyles: {
-        fillColor: [245, 245, 255],
-        textColor: [30, 30, 30],
-        fontSize: 11
-      },
-      styles: {
-        cellPadding: 5,
-        lineWidth: 0.1,
-        lineColor: [220, 220, 220]
-      }
     });
-  
-    currentY = (doc.lastAutoTable?.finalY || currentY) + 10;
-  
+
     const ranked = ev.participants
       .map((p) => ({
         name: p,
         avg: Number(calcAvg(ev, p)),
       }))
       .sort((a, b) => b.avg - a.avg);
-  
+
     autoTable(doc, {
-      startY: currentY,
-      head: [['🏅 Final Rankings (Averaged)']],
+      startY: doc.lastAutoTable?.finalY + 10 || 60,
+      head: [['🏅 Rankings (Based on Averages)']],
       body: ranked.map((r, idx) => [
-        `${idx + 1}. ${r.name} — ${r.avg.toFixed(2)}`
+        `${idx + 1}. ${r.name} — ${r.avg.toFixed(2)}`,
       ]),
-      headStyles: {
-        fillColor: [255, 87, 34], // Deep orange
-        textColor: [255, 255, 255],
-        fontSize: 12
-      },
-      bodyStyles: {
-        fillColor: [255, 243, 224],
-        textColor: [40, 40, 40],
-        fontSize: 11
-      },
-      styles: {
-        cellPadding: 5,
-        lineWidth: 0.1,
-        lineColor: [210, 210, 210]
-      }
     });
-  
-    doc.save(`${ev.name.replace(/\s+/g, '_')}_summary.pdf`);
+
+    doc.save(`${ev.name.replace(/\s+/g, '_')}.pdf`);
   };
-  
   const loginWithEmail = async () => {
     const email = prompt("Enter email:");
     const password = prompt("Enter password:");
     try {
       await signInWithEmailAndPassword(auth, email, password);
       alert("✅ Logged in successfully.");
-      setRequireFreshLogin(false); // (if you're using the previous fix)
       setViewMode('intro');        // ✅ GO TO judge/organizer menu
     } catch (err) {
       alert("❌ Login failed: " + err.message);
@@ -678,7 +543,19 @@ export default function App() {
     );
   }
   
-  if (!user || requireFreshLogin) {
+  if (!authChecked) {
+    return (
+      <div className="intro-screen">
+        <h1>🎯 Digital Scoresheet App</h1>
+        <p className="text-center credits">made by JCTA</p>
+        <div className="flex-center">
+          <p>⏳ Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (!user) {
     return (
       <div className="intro-screen">
         <h1>🎯 Digital Scoresheet App</h1>
@@ -694,7 +571,7 @@ export default function App() {
       </div>
     );
   }
-  
+    
   if (viewMode === 'intro') {
     return (
       <div className="intro-screen">
@@ -764,18 +641,6 @@ export default function App() {
       </div>
     );
   }
-  const promptEditList = (title, list, callback) => {
-    const input = prompt(`${title} (comma separated):`, list.join(', '));
-    if (input != null) {
-      const newList = input.split(',').map((s) => s.trim()).filter(Boolean);
-      callback(newList);
-    }
-  };
-  const visibleJudgeEvents = events.filter((ev) =>
-  ev.visibleToJudges &&
-  ev.judges.map((j) => j.toLowerCase()).includes(currentJudge.trim().toLowerCase())
-);
-
 return (
   <div className="app-container">
 {viewMode === 'organizer' && organizerView ? (
@@ -791,16 +656,9 @@ return (
     <button className="btn-purple" onClick={handleImport}>
       📥 Import
     </button>
-    <div className="dropdown">
-  <button className="btn-purple">📤 Export ▼</button>
-  <div className="dropdown-content">
-    <button onClick={handleExport}>📋 Export All JSON</button>
-    <button onClick={exportOverallSummaryPDF}>📊 Overall Summary PDF</button>
-    <button onClick={exportPerJudgePDF}>👨‍⚖️ Per-Judge Results PDF</button>
-    <button onClick={exportSpecificEventPDF}>📄 Specific Event PDF</button>
-  </div>
-</div>
-
+    <button className="btn-purple" onClick={handleExport}>
+      📤 Export ▼
+    </button>
     <button className="btn-yellow" onClick={generateJudgeCode}>
       🎫 Generate Judge Code
     </button>
@@ -953,10 +811,41 @@ return (
     </button>
   </div>
 )}
-<div>
-<div className="top-bar">
+
+        <div className="top-bar">
   <h1>🎯 Digital Scoresheet App</h1>
   <p className="text-center credits">made by JCTA</p>
+
+  <div className="flex-center">
+    {organizerView && (
+      <>
+        <button className="btn-yellow" onClick={generateJudgeCode}>
+          🎫 Generate Judge Code
+        </button>
+        <button className="btn-blue" onClick={changeOrganizerPassword}>
+          🔐 Change Password
+        </button>
+        <button className="btn-green" onClick={createNewEvent}>
+          ➕ Add Event
+        </button>
+        <button className="btn-purple" onClick={handleImport}>
+          📥 Import
+        </button>
+        <button className="btn-purple" onClick={handleExport}>
+          📤 Export ▼
+        </button>
+        <button
+  className="btn-gray"
+  onClick={() => {
+    setOrganizerView(false); // 👈 ADD THIS LINE TOO
+    setViewMode('judge');
+  }}
+>
+  👨‍⚖️ Switch to Judge View
+</button>
+
+              </>
+    )}
 
     <button className="btn-gray" onClick={refreshAllData}>
       🔄 Refresh Data
@@ -978,50 +867,27 @@ return (
     </div>
   )}
 </div>
-{visibleJudgeEvents.length === 0 ? (
-  <p style={{
-    textAlign: 'center',
-    marginTop: '60px',
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#444'
-  }}>
-    There's no assigned events yet. Please wait for the organizer. Thank you!
-  </p>
-) : (
-  visibleJudgeEvents.map((ev, idx) => {
-    const isJudgeAllowed = ev.judges
-      .map((j) => j.toLowerCase())
-      .includes(currentJudge.trim().toLowerCase());
+        {events.map((ev, idx) => {
+          const isJudgeAllowed = ev.judges
+            .map((j) => j.toLowerCase())
+            .includes(currentJudge.trim().toLowerCase());
 
-    if (!ev.visibleToJudges || !isJudgeAllowed) return null;
+          if (!ev.visibleToJudges || !isJudgeAllowed) return null;
 
-    const safeCriteria = ev.criteria.map((c) => {
-      if (typeof c === 'string') {
-        const match = c.match(/^(.*?)(?:\s*\((\d+)\))?$/);
-        return {
-          name: match?.[1]?.trim() || c,
-          max: match?.[2] ? parseInt(match[2]) : 10,
-        };
-      }
-      return c;
-    });
+          const safeCriteria = ev.criteria.map((c) => {
+            if (typeof c === 'string') {
+              const match = c.match(/^(.*?)(?:\s*\((\d+)\))?$/);
+              return {
+                name: match?.[1]?.trim() || c,
+                max: match?.[2] ? parseInt(match[2]) : 10,
+              };
+            }
+            return c;
+          });
 
-    return (
-      <div key={idx} className="card">
-        <h2>{ev.name}</h2>
-
-        {!ev.submittedJudges?.includes(currentJudge) && (
-          <p style={{
-            color: 'red',
-            fontWeight: 'bold',
-            textAlign: 'center',
-            marginBottom: '10px'
-          }}>
-            Important: After submitting, you can view the scores you've given but you cannot change it.
-            Final ranking will be shown after the organizer received all scores from all judges. Thank you!
-          </p>
-        )}
+          return (
+            <div key={idx} className="card">
+              <h2>{ev.name}</h2>
               <table>
                 <thead>
                   <tr>
@@ -1102,49 +968,25 @@ return (
                 </>
               )}
             </div>
-);
-})
-)}
-</>
-)}
-{/* Watermark */}
+          );
+        })}
+      </>
+    )}
+
+    {/* Watermark */}
     <div style={{ display: 'none' }}>
       {Array.from('JOHN CARL TABANAO ALCORIN')
         .map((char) => char.charCodeAt(0).toString(2))
         .join(' ')}
     </div>
-    {/* Chat Section (visible to both organizer and judge) */}
-<div className="chat-box">
-  <button
-    className="btn-purple"
-    onClick={() => setChatOpen((prev) => !prev)}
-  >
-    💬 {chatOpen ? 'Close Chat' : 'Open Chat'}
-  </button>
-
-  {chatOpen && (
-    <div className="chat-window">
-      <div className="chat-messages">
-        {chatMessages.map((msg, i) => (
-          <p key={i}>
-            <strong>{msg.sender}:</strong> {msg.text}
-          </p>
-        ))}
-      </div>
-      <div className="chat-input">
-        <input
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          placeholder="Type your message..."
-        />
-        <button className="btn-blue" onClick={handleSendMessage}>
-          Send
-        </button>
-      </div>
-    </div>
-  )}
-</div>
-
   </div> // <-- closes .app-container
 );       // <-- closes the return
+
+const promptEditList = (title, list, callback) => {
+  const input = prompt(`${title} (comma separated):`, list.join(', '));
+  if (input != null) {
+    const newList = input.split(',').map((s) => s.trim()).filter(Boolean);
+    callback(newList);
+  }
+};
   }
