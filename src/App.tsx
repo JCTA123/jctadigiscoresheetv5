@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import 'jspdf-autotable';
@@ -14,6 +14,48 @@ import {
   onAuthStateChanged,
   signOut
 } from 'firebase/auth';
+import 'jspdf';
+
+declare module 'jspdf' {
+  interface jsPDF {
+    lastAutoTable?: {
+      finalY: number;
+      // other properties if needed
+    };
+  }
+}
+
+import type { User } from 'firebase/auth';
+
+type Criterion = string | { name: string; max: number };
+
+interface Event {
+  criteria: Criterion[];
+  // other props
+}
+type ChatMessage = {
+  sender: string;
+  text: string;
+};
+
+type Scores = Record<string, number | "">; // Criteria name to score (number or empty string)
+type ParticipantScores = Record<string, Scores>; // participant => criteria scores
+type JudgeScores = Record<string, ParticipantScores>; // judge => participant scores
+interface Event {
+  judges: string[];
+  participants: string[];
+}
+
+interface Event {
+  name: string;
+  participants: string[];
+  judges: string[];
+  criteria: Criterion[];
+  scores: Record<string, Record<string, Record<string, number | string>>>;
+  visibleToJudges: boolean;
+  resultsVisibleToJudges: boolean;
+  submittedJudges?: string[];
+}
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBtzd0B3fIDJ8XRM1ESKx3klnGZRtVy0Dg',
@@ -34,7 +76,17 @@ const DEFAULT_PASSWORD = 'JCTA123';
 const auth = getAuth(app);
 
 export default function App() {
-  const [events, setEvents] = useState([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const toggleVisibility = (idx: number) => {
+    setEvents(prevEvents => {
+      const newEvents = [...prevEvents];
+      newEvents[idx] = {
+        ...newEvents[idx],
+        visibleToJudges: !newEvents[idx].visibleToJudges,
+      };
+      return newEvents;
+    });
+  };
   const [organizerView, setOrganizerView] = useState(false);
   const [currentJudge, setCurrentJudge] = useState('');
   const [chatOpen, setChatOpen] = useState(false);
@@ -62,17 +114,17 @@ export default function App() {
   const [pendingJudgeName, setPendingJudgeName] = useState('');
   const [judgeCodes, setJudgeCodes] = useState<string[]>([]);
   const [codeInput, setCodeInput] = useState('');
-  const [tempScores, setTempScores] = useState({});
+  const [tempScores, setTempScores] = useState<Record<number, Record<string, Record<string, number | ''>>>>({});
 
   const chatRef = useRef(null);
 
-  const [user, setUser] = useState(null); // ✅ Firebase Auth user
+  const [user, setUser] = useState<User | null>(null);  
   const [authChecked, setAuthChecked] = useState(false);
   const [requireFreshLogin, setRequireFreshLogin] = useState(() => {
     const saved = localStorage.getItem('requireFreshLogin');
     return saved === 'false' ? false : true;
   });
-  
+
   useEffect(() => {
     console.log("✅ viewMode:", viewMode);
     console.log("✅ organizerView:", organizerView);
@@ -98,7 +150,7 @@ export default function App() {
   
     onValue(codesRef, (snapshot) => {
       const val = snapshot.val();
-      const codeList = val ? Object.values(val) : [];
+      const codeList = val ? Object.values(val) as string[]: [];
       setJudgeCodes(codeList);
     });
   
@@ -144,7 +196,13 @@ export default function App() {
   
     return () => unsubscribe(); // ✅ CORRECTLY outside
   }, []);
-      
+  const updateEvent = (idx: number, updatedEvent: Event) => {
+    const updatedEvents = [...events];
+    updatedEvents[idx] = updatedEvent;
+    setEvents(updatedEvents);
+    updateFirebase('events', updatedEvents);
+  };
+  
   const createNewEvent = () => {
     const name = prompt('Enter event name:');
     if (!name) return;
@@ -163,8 +221,18 @@ export default function App() {
     updateFirebase('events', newEvents);
     setEvents(newEvents);
   };
-
-  const deleteEvent = (idx) => {
+  setTempScores((prev) => ({
+    ...prev,
+    [idx]: {
+      ...(prev[idx] || {}),
+      [p]: {
+        ...(prev[idx]?.[p] || {}),
+        [c.name]: sanitizedVal,
+      },
+    },
+  }));
+  
+  const deleteEvent = (idx: number) => {
     if (window.confirm('Are you sure you want to delete this event?')) {
       const copy = [...events];
       copy.splice(idx, 1);
@@ -172,22 +240,15 @@ export default function App() {
     }
   };
 
-  const updateEvent = (idx, newEv) => {
-    const copy = [...events];
-    copy[idx] = newEv;
-    updateFirebase('events', copy);
-  };
-
-  const toggleVisibility = (idx) => {
-    const ev = events[idx];
+  events.map((ev, idx: number) => {
     const updated = { ...ev, visibleToJudges: !ev.visibleToJudges };
     const updatedEvents = [...events];
     updatedEvents[idx] = updated;
     updateFirebase('events', updatedEvents);
-    setEvents(updatedEvents); // ensure UI reflects change immediately
-  };
+    setEvents(updatedEvents);
+  })
   
-  const toggleResultsVisibility = (idx) => {
+  const toggleResultsVisibility = (idx: number) => {
     const ev = events[idx];
     const updated = {
       ...ev,
@@ -199,7 +260,13 @@ export default function App() {
     setEvents(updatedEvents);
   };
   
-  const handleInputScore = (idx, judge, participant, crit, val) => {
+  const handleInputScore = (
+    idx: number,
+    judge: string,
+    participant: string,
+    crit: string,
+    val: string | number
+  ) => {
     const ev = events[idx];
     const scoreVal = val === '' ? '' : Number(val);
     const newScores = {
@@ -214,8 +281,8 @@ export default function App() {
     };
     updateEvent(idx, { ...ev, scores: newScores });
   };
-
-  const handleSubmitScores = (idx) => {
+  
+  const handleSubmitScores = (idx: number) => {
     const ev = events[idx];
     const updatedSubmitted = [...(ev.submittedJudges || []), currentJudge];
 
@@ -234,7 +301,25 @@ export default function App() {
         );
       });
     });
-
+    const handleScoreChange = (
+      eventIdx: number,
+      participant: string,
+      criterion: { name: string; max: number },
+      newVal: string | number
+    ) => {
+      const sanitizedVal = newVal === '' ? '' : Number(newVal);
+      setTempScores((prev) => ({
+        ...prev,
+        [eventIdx]: {
+          ...(prev[eventIdx] || {}),
+          [participant]: {
+            ...(prev[eventIdx]?.[participant] || {}),
+            [criterion.name]: sanitizedVal,
+          },
+        },
+      }));
+    };
+    
     updateEvent(idx, {
       ...ev,
       scores: scoresToPush,
@@ -243,7 +328,6 @@ export default function App() {
 
     setTempScores({});
   };
-
   const handleSendMessage = () => {
     if (newMessage.trim()) {
       const updatedMessages = [
@@ -383,7 +467,7 @@ export default function App() {
     }, { onlyOnce: true });
   
     onValue(ref(db, base + 'judgeCodes'), (snapshot) => {
-      const val = snapshot.val();
+      const val = snapshot.val() as Record<string, string> | null;
       const codeList = val ? Object.values(val) : [];
       setJudgeCodes(codeList);
     }, { onlyOnce: true });
@@ -395,37 +479,57 @@ export default function App() {
     alert('✅ Data refreshed from Firebase.');
   };
 
-  const calcTotalForJudge = (ev, judge, participant) => {
+  const calcTotalForJudge = (ev: Event, judge: string, participant: string): number => {
     const scores = ev.scores?.[judge]?.[participant] || {};
-    return Object.values(scores).reduce((a, b) => a + Number(b || 0), 0);
+    return Object.values(scores).reduce((a: number, b) => a + Number(b || 0), 0);
   };
-
-  const calcTotalAllJudges = (ev, participant) => {
+  
+  const calcTotalAllJudges = (ev: Event, participant: string): number => {
     return ev.judges.reduce(
       (sum, judge) => sum + calcTotalForJudge(ev, judge, participant),
       0
     );
   };
-
-  const calcAvg = (ev, participant) => {
+  
+  const calcAvg = (ev: Event, participant: string): string => {
     return (calcTotalAllJudges(ev, participant) / ev.judges.length).toFixed(2);
   };
-
-  const renderSummary = (ev) => {
+  
+  const renderSummary = (ev: Event) => {
     const ranked = ev.participants
       .map((p) => ({
         name: p,
         avg: Number(calcAvg(ev, p)),
       }))
       .sort((a, b) => b.avg - a.avg);
-  
-    const getEmoji = (idx) => {
+
+    
+    const getEmoji = (idx: number): string => {
       if (idx === 0) return '🥇';
       if (idx === 1) return '🥈';
       if (idx === 2) return '🥉';
       return '';
     };
-  
+    function handleScoreChange(
+      idx: number,
+      participant: string,
+      criterion: { name: string; max: number },
+      value: string
+    ) {
+      const sanitizedVal = value === '' ? '' : Number(value);
+    
+      setTempScores((prev) => ({
+        ...prev,
+        [idx]: {
+          ...(prev[idx] || {}),
+          [participant]: {
+            ...(prev[idx]?.[participant] || {}),
+            [criterion.name]: sanitizedVal,
+          },
+        },
+      }));
+    }
+    
     return (
       <div className="summary-box">
         <h3>🏅 Rankings (Average of All Judges)</h3>
@@ -647,20 +751,36 @@ export default function App() {
   const loginWithEmail = async () => {
     const email = prompt("Enter email:");
     const password = prompt("Enter password:");
+  
+    if (!email || !password) {
+      alert("Email and password are required.");
+      return;
+    }
+  
     try {
       await signInWithEmailAndPassword(auth, email, password);
       alert("✅ Logged in successfully.");
       localStorage.setItem('requireFreshLogin', 'false');
-      setRequireFreshLogin(false); // (if you're using the previous fix)
-      setViewMode('intro');        // ✅ GO TO judge/organizer menu
+      setRequireFreshLogin(false);
+      setViewMode('intro');
     } catch (err) {
-      alert("❌ Login failed: " + err.message);
+      if (err instanceof Error) {
+        alert("❌ Login failed: " + err.message);
+      } else {
+        alert("❌ Login failed");
+      }
     }
   };
-  
+    
   const registerWithEmail = async () => {
     const email = prompt("Enter new email:");
     const password = prompt("Enter new password (min 6 chars):");
+  
+    if (!email || !password) {
+      alert("Email and password are required.");
+      return;
+    }
+  
     try {
       await createUserWithEmailAndPassword(auth, email, password);
       alert("✅ Registered successfully. You're now logged in.");
@@ -668,10 +788,14 @@ export default function App() {
       setRequireFreshLogin(false); // (if applicable)
       setViewMode('intro');        // ✅ GO TO judge/organizer menu
     } catch (err) {
-      alert("❌ Registration failed: " + err.message);
+      if (err instanceof Error) {
+        alert("❌ Registration failed: " + err.message);
+      } else {
+        alert("❌ Registration failed");
+      }
     }
   };
-  
+    
   if (!authChecked) {
     return (
       <div className="intro-screen">
@@ -770,18 +894,110 @@ export default function App() {
       </div>
     );
   }
-  const promptEditList = (title, list, callback) => {
+  const promptEditList = (
+    title: string,
+    list: string[],
+    callback: (newList: string[]) => void
+  ) => {
     const input = prompt(`${title} (comma separated):`, list.join(', '));
     if (input != null) {
       const newList = input.split(',').map((s) => s.trim()).filter(Boolean);
       callback(newList);
     }
   };
+    
   const visibleJudgeEvents = events.filter((ev) =>
   ev.visibleToJudges &&
   ev.judges.map((j) => j.toLowerCase()).includes(currentJudge.trim().toLowerCase())
 );
+{viewMode === 'judge' && currentJudge && (
+  <>
+    <div className="top-bar">
+      <h2>Welcome, Judge {currentJudge}</h2>
+      <button className="btn-red" onClick={handleAuthLogout}>🚪 Logout</button>
+    </div>
 
+    {visibleJudgeEvents.length === 0 ? (
+      <p className="text-center">📭 No visible events assigned to you yet.</p>
+    ) : (
+      visibleJudgeEvents.map((ev, idx) => {
+        const safeCriteria = ev.criteria.map(c =>
+          typeof c === 'string' ? { name: c, max: 10 } : c
+        );
+
+        return (
+          <div key={idx} className="card">
+            <h2>{ev.name}</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Participant</th>
+                  {safeCriteria.map((c, cdx) => (
+                    <td key={cdx}>
+                      <input
+                    type="number"
+                    min={0}
+                    max={c.max}
+                    value={tempScores?.[idx]?.[p]?.[c.name] ?? ''}
+                    onChange={(e) =>
+                      handleScoreChange(idx, p, c, e.target.value)
+                    }
+                  />
+                </td>
+                  ))}
+                  <th> Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ev.participants.map((p, pdx) => (
+                  <tr key={pdx}>
+                    <td>{p}</td>
+                    {safeCriteria.map((c, cdx) => (
+                      <td key={cdx}>
+                        <input
+                          type="number"
+                          min={0}
+                          max={c.max}
+                          value={
+                            tempScores?.[idx]?.[p]?.[c.name] ??
+                            ev.scores?.[currentJudge]?.[p]?.[c.name] ?? ''
+                          }
+                          disabled={ev.submittedJudges?.includes(currentJudge)}
+                          onChange={(e) => {
+                            const newVal = e.target.value;
+                            const sanitizedVal = newVal === '' ? '' : Number(newVal);
+
+                            setTempScores((prev) => ({
+                              ...prev,
+                              [idx]: {
+                                ...(prev[idx] || {}),
+                                [p]: {
+                                  ...(prev[idx]?.[p] || {}),
+                                  [c.name]: sanitizedVal,
+                                },
+                              },
+                            }));
+                          }}
+                          onBlur={(e) => {
+                            const val = e.target.value;
+                            if (val !== '') {
+                              handleInputScore(idx, currentJudge, p, c.name, Number(val));
+                            }
+                          }}
+                        />
+                      </td>
+                    ))}
+                    <td>{calcTotalForJudge(ev, currentJudge, p)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })
+    )}
+  </>
+)}
 return (
   <div className="app-container">
     {viewMode === 'organizer' && organizerView ? (
@@ -832,52 +1048,76 @@ return (
             const safeCriteria = ev.criteria.map(c =>
               typeof c === 'string' ? { name: c, max: 10 } : c
             );
+
             return (
               <div key={idx} className="card">
+                {/* Event header with buttons */}
                 <div className="flex-center">
                   <h2>{ev.name}</h2>
-                  <button onClick={() => toggleVisibility(idx)} className={ev.visibleToJudges ? 'btn-red' : 'btn-green'}>
+                  <button
+                    onClick={() => toggleVisibility(idx)}
+                    className={ev.visibleToJudges ? 'btn-red' : 'btn-green'}
+                  >
                     {ev.visibleToJudges ? 'Hide from Judges' : 'Show to Judges'}
                   </button>
-                  <button onClick={() => deleteEvent(idx)} className="btn-red">❌ Delete</button>
+                  <button onClick={() => deleteEvent(idx)} className="btn-red">
+                    ❌ Delete
+                  </button>
                 </div>
 
+                {/* Event management buttons */}
                 <div className="flex-center">
-                  <button className="btn-purple" onClick={() =>
-                    promptEditList('Edit Participants', ev.participants, (newList) =>
-                      updateEvent(idx, { ...ev, participants: newList })
-                    )
-                  }>👥 Participants</button>
+                  <button
+                    className="btn-purple"
+                    onClick={() =>
+                      promptEditList('Edit Participants', ev.participants, (newList) =>
+                        updateEvent(idx, { ...ev, participants: newList })
+                      )
+                    }
+                  >
+                    👥 Participants
+                  </button>
 
-                  <button className="btn-yellow" onClick={() =>
-                    promptEditList('Edit Judges', ev.judges, (newList) =>
-                      updateEvent(idx, { ...ev, judges: newList })
-                    )
-                  }>🧑‍⚖️ Judges</button>
+                  <button
+                    className="btn-yellow"
+                    onClick={() =>
+                      promptEditList('Edit Judges', ev.judges, (newList) =>
+                        updateEvent(idx, { ...ev, judges: newList })
+                      )
+                    }
+                  >
+                    🧑‍⚖️ Judges
+                  </button>
 
-                  <button className="btn-blue" onClick={() =>
-                    promptEditList(
-                      'Edit Criteria (use format: Creativity (10))',
-                      ev.criteria.map(c => typeof c === 'string' ? c : `${c.name} (${c.max})`),
-                      (newList) =>
-                        updateEvent(idx, {
-                          ...ev,
-                          criteria: newList.map((entry) => {
-                            const match = entry.match(/(.+?)\s*\((\d+)\)/);
-                            if (match) {
-                              return { name: match[1].trim(), max: parseInt(match[2]) };
-                            }
-                            return { name: entry.trim(), max: 10 };
-                          }),
-                        })
-                    )
-                  }>📋 Criteria</button>
+                  <button
+                    className="btn-blue"
+                    onClick={() =>
+                      promptEditList(
+                        'Edit Criteria (use format: Creativity (10))',
+                        ev.criteria.map(c => (typeof c === 'string' ? c : `${c.name} (${c.max})`)),
+                        (newList) =>
+                          updateEvent(idx, {
+                            ...ev,
+                            criteria: newList.map((entry) => {
+                              const match = entry.match(/(.+?)\s*\((\d+)\)/);
+                              if (match) {
+                                return { name: match[1].trim(), max: parseInt(match[2]) };
+                              }
+                              return { name: entry.trim(), max: 10 };
+                            }),
+                          })
+                      )
+                    }
+                  >
+                    📋 Criteria
+                  </button>
 
                   <button className="btn-gray" onClick={() => toggleResultsVisibility(idx)}>
                     {ev.resultsVisibleToJudges ? '🙈 Hide Results from Judges' : '👁️ Show Results to Judges'}
                   </button>
                 </div>
 
+                {/* Table of participants with judges' total & average */}
                 <table>
                   <thead>
                     <tr>
@@ -903,6 +1143,55 @@ return (
                   </tbody>
                 </table>
 
+                {/* Scores input table */}
+                <table>
+                  <tbody>
+                    {ev.participants.map((p, pdx) => (
+                      <tr key={pdx}>
+                        <td>{p}</td>
+                        {safeCriteria.map((c, cdx) => (
+                          <td key={cdx}>
+                            <input
+                              type="number"
+                              min={0}
+                              max={c.max}
+                              value={
+                                tempScores?.[idx]?.[p]?.[c.name] ??
+                                ev.scores?.[currentJudge]?.[p]?.[c.name] ??
+                                ''
+                              }
+                              disabled={ev.submittedJudges?.includes(currentJudge)}
+                              onChange={(e) => {
+                                const newVal = e.target.value;
+                                const sanitizedVal = newVal === '' ? '' : Number(newVal);
+
+                                setTempScores((prev) => ({
+                                  ...prev,
+                                  [idx]: {
+                                    ...(prev[idx] || {}),
+                                    [p]: {
+                                      ...(prev[idx]?.[p] || {}),
+                                      [c.name]: sanitizedVal,
+                                    },
+                                  },
+                                }));
+                              }}
+                              onBlur={(e) => {
+                                const val = e.target.value;
+                                if (val !== '') {
+                                  handleInputScore(idx, currentJudge, p, c.name, Number(val));
+                                }
+                              }}
+                            />
+                          </td>
+                        ))}
+                        <td>{calcTotalForJudge(ev, currentJudge, p)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Optional: Show summary if visible */}
                 {ev.resultsVisibleToJudges && renderSummary(ev)}
               </div>
             );
@@ -910,8 +1199,8 @@ return (
         )}
       </>
     ) : (
-      // --- Judge View Rendering ---
       <>
+        {/* --- Judge View Rendering --- */}
         <div className="top-bar">
           <h1>🎯 Digital Scoresheet App</h1>
           <p className="text-center credits">made by JCTA</p>
@@ -983,21 +1272,22 @@ return (
                               disabled={ev.submittedJudges?.includes(currentJudge)}
                               onChange={(e) => {
                                 const newVal = e.target.value;
-                                if (Number(newVal) <= c.max) {
+                                const sanitizedVal = newVal === '' ? '' : Number(newVal);
+                                if (newVal === '' || Number(newVal) <= c.max) {
                                   setTempScores((prev) => ({
                                     ...prev,
                                     [idx]: {
                                       ...(prev[idx] || {}),
                                       [p]: {
                                         ...(prev[idx]?.[p] || {}),
-                                        [c.name]: newVal,
+                                        [c.name]: sanitizedVal,
                                       },
                                     },
                                   }));
                                 }
                               }}
                               onBlur={(e) => {
-                                const val = tempScores?.[idx]?.[p]?.[c.name];
+                                const val = e.target.value;
                                 if (val !== undefined && val !== '') {
                                   handleInputScore(idx, currentJudge, p, c.name, Number(val));
                                 }
