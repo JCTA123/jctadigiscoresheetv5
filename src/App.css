@@ -932,36 +932,3 @@ td input[type='number'] {
   font-size: 1.4rem;
   margin-right: 5px;
 }
-.dropdown {
-  position: relative;
-  display: inline-block;
-}
-
-.dropdown-content {
-  display: none;
-  position: absolute;
-  background-color: #fff;
-  min-width: 200px;
-  box-shadow: 0px 8px 16px rgba(0,0,0,0.2);
-  z-index: 1;
-  flex-direction: column;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.dropdown:hover .dropdown-content {
-  display: flex;
-}
-
-.dropdown-content button {
-  padding: 10px;
-  background-color: #f8f8f8;
-  border: none;
-  text-align: left;
-  width: 100%;
-  cursor: pointer;
-}
-
-.dropdown-content button:hover {
-  background-color: #ddd;
-}

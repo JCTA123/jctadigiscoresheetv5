@@ -34,7 +34,6 @@ const DEFAULT_PASSWORD = 'JCTA123';
 const auth = getAuth(app);
 
 export default function App() {
-  try {
   const [events, setEvents] = useState([]);
   const [organizerView, setOrganizerView] = useState(false);
   const [currentJudge, setCurrentJudge] = useState('');
@@ -69,6 +68,7 @@ export default function App() {
 
   const [user, setUser] = useState(null); // ✅ Firebase Auth user
   const [authChecked, setAuthChecked] = useState(false);
+  const [requireFreshLogin, setRequireFreshLogin] = useState(true);
 
   useEffect(() => {
     console.log("✅ viewMode:", viewMode);
@@ -120,10 +120,7 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setAuthChecked(true);
-      if (firebaseUser) {
-        refreshAllData(); // Automatically pulls the latest data
-      }
-      
+  
       if (!firebaseUser) {
         localStorage.clear();
         setOrganizerView(false);
@@ -154,10 +151,7 @@ export default function App() {
         name,
         participants: ['Alice', 'Bob'],
         judges: ['Judge 1'],
-        criteriaPhase1: [{ name: 'Creativity', max: 10 }],
-criteriaPhase2: [{ name: 'Impact', max: 10 }],
-phase1Participants: ['Alice', 'Bob'],
-phase2Participants: [],
+        criteria: [{ name: 'Creativity', max: 10 }],
         scores: {},
         visibleToJudges: false,
         resultsVisibleToJudges: false, // ✅ NEW FIELD
@@ -166,37 +160,7 @@ phase2Participants: [],
     updateFirebase('events', newEvents);
     setEvents(newEvents);
   };
-  const createTwoPhasedEvent = () => {
-    const name = prompt('Enter 2-Phase Event name:');
-    if (!name) return;
-    const newEvents = [
-      ...events,
-      {
-        name,
-        participants: ['Alice', 'Bob'],
-        judges: ['Judge 1'],
-        criteria: [], // optional fallback
-        criteriaPhase1: [{ name: 'Creativity', max: 10 }],
-        criteriaPhase2: [{ name: 'Impact', max: 10 }],
-        phase1Participants: ['Alice', 'Bob'],
-        phase2Participants: [],
-        scores: {}, // in case other logic accesses this
-        phase1Scores: {},
-        phase2Scores: {},
-        submittedJudges: [], // in case other logic accesses this
-        submittedJudgesPhase1: [],
-        submittedJudgesPhase2: [],
-        phase: 1,
-        phased: true,
-        visibleToJudges: false,
-        resultsVisibleToJudges: false,
-        selectedForPhase2: [],
-      },
-    ];
-    updateFirebase('events', newEvents);
-    setEvents(newEvents);
-  };
-      
+
   const deleteEvent = (idx) => {
     if (window.confirm('Are you sure you want to delete this event?')) {
       const copy = [...events];
@@ -209,13 +173,6 @@ phase2Participants: [],
     const copy = [...events];
     copy[idx] = newEv;
     updateFirebase('events', copy);
-  };
-  const promptEditList = (title, list, callback) => {
-    const input = prompt(`${title} (comma separated):`, list.join(', '));
-    if (input != null) {
-      const newList = input.split(',').map((s) => s.trim()).filter(Boolean);
-      callback(newList);
-    }
   };
 
   const toggleVisibility = (idx) => {
@@ -395,6 +352,7 @@ phase2Participants: [],
       setEvents([]);
       setJudgeCodes([]);
       setChatMessages([]);
+      setRequireFreshLogin(true); // 👈 Add this
     });
   };
   const handleLogout = () => {
@@ -433,41 +391,21 @@ phase2Participants: [],
     alert('✅ Data refreshed from Firebase.');
   };
 
-// Calculates total score given by a judge for a participant
-const calcTotalForJudge = (ev, judge, participant, phase = null) => {
-  const scores =
-    phase === 'phase1'
-      ? ev.phase1Scores?.[judge]?.[participant] || {}
-      : phase === 'phase2'
-      ? ev.phase2Scores?.[judge]?.[participant] || {}
-      : ev.scores?.[judge]?.[participant] || {};
+  const calcTotalForJudge = (ev, judge, participant) => {
+    const scores = ev.scores?.[judge]?.[participant] || {};
+    return Object.values(scores).reduce((a, b) => a + Number(b || 0), 0);
+  };
 
-  return Object.values(scores).reduce((a, b) => a + Number(b || 0), 0);
-};
+  const calcTotalAllJudges = (ev, participant) => {
+    return ev.judges.reduce(
+      (sum, judge) => sum + calcTotalForJudge(ev, judge, participant),
+      0
+    );
+  };
 
-// Calculates total score from all judges for a participant
-const calcTotalAllJudges = (ev, participant, phase = null) => {
-  return ev.judges.reduce(
-    (sum, judge) => sum + calcTotalForJudge(ev, judge, participant, phase),
-    0
-  );
-};
-
-const calcCombinedAvgPhased = (ev, participant) => {
-  const judgeList1 = Object.keys(ev.phase1Scores || {});
-  const judgeList2 = Object.keys(ev.phase2Scores || {});
-  const totalJudges = new Set([...judgeList1, ...judgeList2]);
-
-  if (totalJudges.size === 0) return 0;
-
-  let total = 0;
-  totalJudges.forEach((j) => {
-    total += calcTotalForJudge(ev, j, participant, 'phase1');
-    total += calcTotalForJudge(ev, j, participant, 'phase2');
-  });
-
-  return (total / totalJudges.size).toFixed(2);
-};
+  const calcAvg = (ev, participant) => {
+    return (calcTotalAllJudges(ev, participant) / ev.judges.length).toFixed(2);
+  };
 
   const renderSummary = (ev) => {
     const ranked = ev.participants
@@ -476,59 +414,148 @@ const calcCombinedAvgPhased = (ev, participant) => {
         avg: Number(calcAvg(ev, p)),
       }))
       .sort((a, b) => b.avg - a.avg);
-
+  
+    const getEmoji = (idx) => {
+      if (idx === 0) return '🥇';
+      if (idx === 1) return '🥈';
+      if (idx === 2) return '🥉';
+      return '';
+    };
+  
     return (
       <div className="summary-box">
-        <h3>🏅 Rankings (Based on Averages)</h3>
-        <ol>
-          {ranked.map((r, idx) => (
-            <li key={idx}>
-              {r.name} — {r.avg.toFixed(2)}
-            </li>
-          ))}
-        </ol>
+        <h3>🏅 Rankings (Average of All Judges)</h3>
+        <table className="majestic-ranking-table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Entry Name</th>
+              <th>Average Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ranked.map((r, idx) => (
+              <tr key={idx} className={`rank-${idx + 1}`}>
+                <td>
+                  <span className="rank-emoji">{getEmoji(idx)}</span>
+                  {idx + 1}
+                </td>
+                <td>{r.name}</td>
+                <td>{r.avg.toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   };
-
+  
   const exportOverallSummaryPDF = () => {
     const doc = new jsPDF();
-    doc.text('Overall Rankings (by Average)', 14, 14);
-    events.forEach((ev, i) => {
+    const margin = 14;
+    const spacing = 10;
+  
+    doc.setFontSize(16);
+    doc.setTextColor('#3c3c3c');
+    doc.setFont('helvetica', 'bold');
+    doc.text('🏆 Overall Rankings (Averaged by All Judges)', margin, 20);
+  
+    let currentY = 30;
+  
+    events.forEach((ev, index) => {
       const ranked = ev.participants
         .map((p) => ({
           name: p,
           avg: Number(calcAvg(ev, p)),
         }))
         .sort((a, b) => b.avg - a.avg);
-
+  
       autoTable(doc, {
-        startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 20,
-        head: [[`🏆 ${ev.name}`]],
-        body: ranked.map((r, idx) => [
-          `${idx + 1}. ${r.name} — ${r.avg.toFixed(2)}`,
+        startY: currentY,
+        theme: 'grid',
+        head: [[`🎯 ${ev.name}`, 'Average']],
+        body: ranked.map((r, i) => [
+          `${i + 1}. ${r.name}`,
+          r.avg.toFixed(2)
         ]),
+        headStyles: {
+          fillColor: [63, 81, 181], // Indigo
+          textColor: [255, 255, 255],
+          halign: 'center',
+          fontSize: 12
+        },
+        bodyStyles: {
+          fillColor: [240, 248, 255], // AliceBlue
+          textColor: [60, 60, 60],
+          fontSize: 11
+        },
+        columnStyles: {
+          0: { cellPadding: 5, halign: 'left' },
+          1: { halign: 'center' }
+        },
+        styles: {
+          cellPadding: 6,
+          lineWidth: 0.1,
+          lineColor: [200, 200, 200]
+        }
       });
+  
+      currentY = (doc.lastAutoTable?.finalY || currentY) + spacing;
     });
+  
     doc.save('overall_summary.pdf');
   };
-
+  
   const exportPerJudgePDF = () => {
     const doc = new jsPDF();
-    doc.text('Per-Judge Scoring Summary', 14, 14);
-    events.forEach((ev, i) => {
+    const margin = 14;
+    let currentY = 20;
+  
+    doc.setFontSize(16);
+    doc.setTextColor('#2c2c2c');
+    doc.setFont('helvetica', 'bold');
+    doc.text('👨‍⚖️ Per-Judge Scoring Summary', margin, currentY);
+    currentY += 10;
+  
+    events.forEach((ev) => {
       ev.judges.forEach((j) => {
         autoTable(doc, {
-          startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 20,
-          head: [[`👨‍⚖️ ${j} — ${ev.name}`]],
+          startY: currentY,
+          theme: 'grid',
+          head: [[`🎯 ${ev.name}`, `Judge: ${j}`]],
           body: ev.participants.map((p) => [
-            `${p}: ${calcTotalForJudge(ev, j, p)}`,
+            p,
+            calcTotalForJudge(ev, j, p).toFixed(2),
           ]),
+          headStyles: {
+            fillColor: [0, 150, 136], // Teal
+            textColor: [255, 255, 255],
+            fontSize: 12,
+            halign: 'center'
+          },
+          bodyStyles: {
+            fillColor: [250, 250, 250],
+            textColor: [40, 40, 40],
+            fontSize: 11
+          },
+          columnStyles: {
+            0: { cellPadding: 5, halign: 'left' },
+            1: { halign: 'center' }
+          },
+          styles: {
+            lineWidth: 0.1,
+            lineColor: [200, 200, 200],
+            cellPadding: 5
+          }
         });
+  
+        currentY = (doc.lastAutoTable?.finalY || currentY) + 10;
       });
     });
+  
     doc.save('per_judge_results.pdf');
   };
+  
   const exportSpecificEventPDF = () => {
     const evName = prompt('Enter exact event name:');
     const ev = events.find((e) => e.name === evName);
@@ -536,43 +563,92 @@ const calcCombinedAvgPhased = (ev, participant) => {
       alert('Event not found.');
       return;
     }
-
+  
     const doc = new jsPDF();
-    doc.text(`📄 ${ev.name} – Scoring Summary (by Average)`, 14, 14);
-
+    let currentY = 20;
+  
+    doc.setFontSize(16);
+    doc.setTextColor('#333');
+    doc.setFont('helvetica', 'bold');
+    doc.text(`📋 ${ev.name} – Complete Scoring Summary`, 14, currentY);
+    currentY += 10;
+  
     autoTable(doc, {
-      head: [['Participant', ...ev.judges, 'Total', 'Average']],
+      startY: currentY,
+      theme: 'grid',
+      head: [[
+        'Participant',
+        ...ev.judges.map(j => `👨‍⚖️ ${j}`),
+        'Total',
+        'Average'
+      ]],
       body: ev.participants.map((p) => [
         p,
-        ...ev.judges.map((j) => calcTotalForJudge(ev, j, p)),
-        calcTotalAllJudges(ev, p),
-        calcAvg(ev, p),
+        ...ev.judges.map((j) => calcTotalForJudge(ev, j, p).toFixed(2)),
+        calcTotalAllJudges(ev, p).toFixed(2),
+        calcAvg(ev, p)
       ]),
+      headStyles: {
+        fillColor: [63, 81, 181], // Indigo
+        textColor: [255, 255, 255],
+        fontSize: 12
+      },
+      bodyStyles: {
+        fillColor: [245, 245, 255],
+        textColor: [30, 30, 30],
+        fontSize: 11
+      },
+      styles: {
+        cellPadding: 5,
+        lineWidth: 0.1,
+        lineColor: [220, 220, 220]
+      }
     });
-
+  
+    currentY = (doc.lastAutoTable?.finalY || currentY) + 10;
+  
     const ranked = ev.participants
       .map((p) => ({
         name: p,
         avg: Number(calcAvg(ev, p)),
       }))
       .sort((a, b) => b.avg - a.avg);
-
+  
     autoTable(doc, {
-      startY: doc.lastAutoTable?.finalY + 10 || 60,
-      head: [['🏅 Rankings (Based on Averages)']],
+      startY: currentY,
+      head: [['🏅 Final Rankings (Averaged)']],
       body: ranked.map((r, idx) => [
-        `${idx + 1}. ${r.name} — ${r.avg.toFixed(2)}`,
+        `${idx + 1}. ${r.name} — ${r.avg.toFixed(2)}`
       ]),
+      headStyles: {
+        fillColor: [255, 87, 34], // Deep orange
+        textColor: [255, 255, 255],
+        fontSize: 12
+      },
+      bodyStyles: {
+        fillColor: [255, 243, 224],
+        textColor: [40, 40, 40],
+        fontSize: 11
+      },
+      styles: {
+        cellPadding: 5,
+        lineWidth: 0.1,
+        lineColor: [210, 210, 210]
+      }
     });
-
-    doc.save(`${ev.name.replace(/\s+/g, '_')}.pdf`);
+  
+    doc.save(`${ev.name.replace(/\s+/g, '_')}_summary.pdf`);
   };
+  
   const loginWithEmail = async () => {
     const email = prompt("Enter email:");
     const password = prompt("Enter password:");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      alert("✅ Logged in successfully.");    } catch (err) {
+      alert("✅ Logged in successfully.");
+      setRequireFreshLogin(false); // (if you're using the previous fix)
+      setViewMode('intro');        // ✅ GO TO judge/organizer menu
+    } catch (err) {
       alert("❌ Login failed: " + err.message);
     }
   };
@@ -583,6 +659,7 @@ const calcCombinedAvgPhased = (ev, participant) => {
     try {
       await createUserWithEmailAndPassword(auth, email, password);
       alert("✅ Registered successfully. You're now logged in.");
+      setRequireFreshLogin(false); // (if applicable)
       setViewMode('intro');        // ✅ GO TO judge/organizer menu
     } catch (err) {
       alert("❌ Registration failed: " + err.message);
@@ -601,8 +678,7 @@ const calcCombinedAvgPhased = (ev, participant) => {
     );
   }
   
-  
-  if (!user) {
+  if (!user || requireFreshLogin) {
     return (
       <div className="intro-screen">
         <h1>🎯 Digital Scoresheet App</h1>
@@ -618,7 +694,7 @@ const calcCombinedAvgPhased = (ev, participant) => {
       </div>
     );
   }
-    
+  
   if (viewMode === 'intro') {
     return (
       <div className="intro-screen">
@@ -642,111 +718,7 @@ const calcCombinedAvgPhased = (ev, participant) => {
       </div>
     );
   }
-  const calcAvg = (ev, participant, phase = null) => {
-    const scores =
-      phase === 'phase1'
-        ? Object.values(ev.phase1Scores || {})
-        : phase === 'phase2'
-        ? Object.values(ev.phase2Scores || {})
-        : Object.values(ev.scores || {});
   
-    const judgeCount = scores.length;
-    if (judgeCount === 0) return 0;
-  
-    let total = 0;
-    scores.forEach((judge) => {
-      const pscores = judge[participant] || {};
-      total += Object.values(pscores).reduce((a, b) => a + Number(b || 0), 0);
-    });
-  
-    return (total / judgeCount).toFixed(2);
-  };
-
-
-  const renderOnePhasedEvent = (ev, idx) => {
-    return (
-      <div key={idx} className="card">
-        <h2>{ev.name}</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Participant</th>
-              {(ev.criteria || []).map((c, cdx) => (
-                <th key={cdx}>{c.name || c}</th>
-              ))}
-              <th>Total</th>
-              <th>Average</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(ev.participants || []).map((p, pdx) => (
-              <tr key={pdx}>
-                <td>{p}</td>
-                {(ev.criteria || []).map((c, cdx) => (
-                  <td key={cdx}>—</td> // Optional: show per-criterion later
-                ))}
-                <td>{calcTotalAllJudges(ev, p)}</td>
-                <td>{calcAvg(ev, p)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-  
-        {ev.finalRanking && (
-          <>
-            <h3>🏅 Final Ranking</h3>
-            <ol>
-              {ev.finalRanking.map((name, i) => (
-                <li key={i}>{name}</li>
-              ))}
-            </ol>
-          </>
-        )}
-        {organizerView && (
-  <div className="button-row">
-    <button className="btn-yellow" onClick={() =>
-      promptEditList('Participants', ev.participants, (newList) => {
-        updateEvent(idx, { ...ev, participants: newList });
-      })
-    }>
-      ✏️ Edit Participants
-    </button>
-
-    <button className="btn-yellow" onClick={() =>
-      promptEditList('Judges', ev.judges, (newList) => {
-        updateEvent(idx, { ...ev, judges: newList });
-      })
-    }>
-      🧑‍⚖️ Edit Judges
-    </button>
-
-    <button className="btn-yellow" onClick={() =>
-      promptEditList('Criteria', ev.criteria.map((c) => c.name || c), (newList) => {
-        const formatted = newList.map((name) => ({ name, max: 10 }));
-        updateEvent(idx, { ...ev, criteria: formatted });
-      })
-    }>
-      📝 Edit Criteria
-    </button>
-
-    <button className="btn-green" onClick={() => toggleVisibility(idx)}>
-      {ev.visibleToJudges ? '🙈 Hide from Judges' : '👁️ Show to Judges'}
-    </button>
-
-    <button className="btn-blue" onClick={() => toggleResultsVisibility(idx)}>
-      {ev.resultsVisibleToJudges ? '🙈 Hide Results' : '📊 Show Results'}
-    </button>
-
-    <button className="btn-red" onClick={() => deleteEvent(idx)}>
-      🗑️ Delete Event
-    </button>
-  </div>
-)}
-
-      </div>
-    );
-  };  
-
   if (viewMode === 'organizer' && !organizerView) {
     return (
       <div className="intro-screen">
@@ -767,473 +739,412 @@ const calcCombinedAvgPhased = (ev, participant) => {
       </div>
     );
   }
-  const renderTwoPhasedEvent = (ev, idx) => {
+
+  if (viewMode === 'judge' && !currentJudge) {
     return (
-      <div key={idx} className="card">
-        <h2>{ev.name} (Two Phases)</h2>
-  
-        {/* Phase 1 */}
-        <h3>📍 Phase 1</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Participant</th>
-              {(ev.criteriaPhase1 || []).map((c, cdx) => (
-                <th key={cdx}>{c.name} ({c.max})</th>
-              ))}
-              <th>Total</th>
-              <th>Average</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(ev.phase1Participants || []).map((p, pdx) => (
-              <tr key={pdx}>
-                <td>{p}</td>
-                {(ev.criteriaPhase1 || []).map((c, cdx) => (
-                  <td key={cdx}>
-                    {Object.values(ev.phase1Scores || {}).map(judgeScores =>
-                      judgeScores[p]?.[c.name] ?? ''
-                    ).filter(v => v !== '').map(Number).reduce((a, b) => a + b, 0)}
-                  </td>
-                ))}
-                <td>{calcTotalAllJudges(ev, p, 'phase1')}</td>
-                <td>-</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-  
-        {/* Phase 1 Rankings */}
-        <h4>🏅 Phase 1 Rankings</h4>
-        <ol>
-          {(ev.phase1Participants || [])
-            .map((p) => ({
-              name: p,
-              avg: Number(calcAvgPhased(ev, p, 'phase1') || 0),
-            }))
-            .sort((a, b) => b.avg - a.avg)
-            .map((r, i) => (
-              <li key={i}>{r.name} — {r.avg.toFixed(2)}</li>
-            ))}
-        </ol>
-  
-        {/* Proceed to Phase 2 */}
-        {organizerView && ev.phase === 1 && (!ev.phase2Participants || ev.phase2Participants.length === 0) && (
-          <button
-            className="btn-blue"
-            onClick={() => {
-              const selected = prompt('Comma-separated names for Phase 2 participants:');
-              if (selected) {
-                const names = selected.split(',').map((n) => n.trim()).filter(Boolean);
-                const updated = {
-                  ...ev,
-                  phase2Participants: names,
-                  phase: 2
-                };
-                updateEvent(idx, updated);
-              }
-            }}
-          >
-            ➡️ Proceed to Phase 2
-          </button>
-        )}
-  
-        {/* Phase 2 */}
-        {(ev.phase2Participants || []).length > 0 && (
-          <>
-            <h3>🏁 Phase 2</h3>
+      <div className="intro-screen">
+        <h2>Judge Login</h2>
+        <input
+          placeholder="Enter code"
+          value={codeInput}
+          onChange={(e) => setCodeInput(e.target.value)}
+        />
+        <input
+          placeholder="Enter your name"
+          value={pendingJudgeName}
+          onChange={(e) => setPendingJudgeName(e.target.value)}
+        />
+        <br />
+        <button className="btn-green" onClick={handleJudgeLogin}>
+          Login
+        </button>
+        <button className="btn-gray" onClick={() => setViewMode('intro')}>
+          🔙 Back
+        </button>
+      </div>
+    );
+  }
+  const promptEditList = (title, list, callback) => {
+    const input = prompt(`${title} (comma separated):`, list.join(', '));
+    if (input != null) {
+      const newList = input.split(',').map((s) => s.trim()).filter(Boolean);
+      callback(newList);
+    }
+  };
+  const visibleJudgeEvents = events.filter((ev) =>
+  ev.visibleToJudges &&
+  ev.judges.map((j) => j.toLowerCase()).includes(currentJudge.trim().toLowerCase())
+);
+
+return (
+  <div className="app-container">
+{viewMode === 'organizer' && organizerView ? (
+  <>
+  <div className="top-bar">
+  <h1>🎯 Digital Scoresheet App</h1>
+  <p className="text-center credits">made by JCTA</p>
+
+  <div className="flex-center">
+    <button className="btn-green" onClick={createNewEvent}>
+      ➕ Add Event
+    </button>
+    <button className="btn-purple" onClick={handleImport}>
+      📥 Import
+    </button>
+    <div className="dropdown">
+  <button className="btn-purple">📤 Export ▼</button>
+  <div className="dropdown-content">
+    <button onClick={handleExport}>📋 Export All JSON</button>
+    <button onClick={exportOverallSummaryPDF}>📊 Overall Summary PDF</button>
+    <button onClick={exportPerJudgePDF}>👨‍⚖️ Per-Judge Results PDF</button>
+    <button onClick={exportSpecificEventPDF}>📄 Specific Event PDF</button>
+  </div>
+</div>
+
+    <button className="btn-yellow" onClick={generateJudgeCode}>
+      🎫 Generate Judge Code
+    </button>
+    <button className="btn-blue" onClick={changeOrganizerPassword}>
+      🔐 Change Password
+    </button>
+    <button className="btn-gray" onClick={refreshAllData}>
+      🔄 Refresh
+    </button>
+    <button
+  className="btn-gray"
+  onClick={() => {
+    setOrganizerView(false); // 👈 ADD THIS LINE TOO
+    setViewMode('judge');
+  }}
+>
+  👨‍⚖️ Switch to Judge View
+</button>
+    <button className="btn-red" onClick={handleAuthLogout}>
+      🚪 Logout
+    </button>
+  </div>
+
+  {/* Active Judge Codes */}
+  <div className="card">
+    <h3>🎟️ Active Judge Codes:</h3>
+    <ul>
+      {judgeCodes.length === 0 ? (
+        <li>No codes yet</li>
+      ) : (
+        judgeCodes.map((code, i) => <li key={i}>{code}</li>)
+      )}
+    </ul>
+  </div>
+</div>
+
+    {events.length === 0 ? (
+      <p className="text-center">📭 No events yet. Click "➕ Add Event" to begin.</p>
+    ) : (
+      events.map((ev, idx) => {
+        const safeCriteria = ev.criteria.map(c =>
+          typeof c === 'string' ? { name: c, max: 10 } : c
+        );
+        return (
+          <div key={idx} className="card">
+            <div className="flex-center">
+              <h2>{ev.name}</h2>
+              <button
+                onClick={() => toggleVisibility(idx)}
+                className={ev.visibleToJudges ? 'btn-red' : 'btn-green'}
+              >
+                {ev.visibleToJudges ? 'Hide from Judges' : 'Show to Judges'}
+              </button>
+              <button onClick={() => deleteEvent(idx)} className="btn-red">
+                ❌ Delete
+              </button>
+            </div>
+
+            <div className="flex-center">
+              <button
+                className="btn-purple"
+                onClick={() =>
+                  promptEditList('Edit Participants', ev.participants, (newList) =>
+                    updateEvent(idx, { ...ev, participants: newList })
+                  )
+                }
+              >
+                👥 Participants
+              </button>
+              <button
+                className="btn-yellow"
+                onClick={() =>
+                  promptEditList('Edit Judges', ev.judges, (newList) =>
+                    updateEvent(idx, { ...ev, judges: newList })
+                  )
+                }
+              >
+                🧑‍⚖️ Judges
+              </button>
+              <button
+                className="btn-blue"
+                onClick={() =>
+                  promptEditList(
+                    'Edit Criteria (use format: Creativity (10))',
+                    ev.criteria.map(c => typeof c === 'string' ? c : `${c.name} (${c.max})`),
+                    (newList) =>
+                      updateEvent(idx, {
+                        ...ev,
+                        criteria: newList.map((entry) => {
+                          const match = entry.match(/(.+?)\s*\((\d+)\)/);
+                          if (match) {
+                            return { name: match[1].trim(), max: parseInt(match[2]) };
+                          }
+                          return { name: entry.trim(), max: 10 };
+                        }),
+                      })
+                  )
+                }
+              >
+                📋 Criteria
+              </button>
+              <button
+                className="btn-gray"
+                onClick={() => toggleResultsVisibility(idx)}
+              >
+                {ev.resultsVisibleToJudges
+                  ? '🙈 Hide Results from Judges'
+                  : '👁️ Show Results to Judges'}
+              </button>
+            </div>
+
             <table>
               <thead>
                 <tr>
                   <th>Participant</th>
-                  {(ev.criteriaPhase2 || []).map((c, cdx) => (
-                    <th key={cdx}>{c.name} ({c.max})</th>
+                  {ev.judges.map((j, jdx) => (
+                    <th key={jdx}>{j}</th>
                   ))}
                   <th>Total</th>
                   <th>Average</th>
                 </tr>
               </thead>
               <tbody>
-                {(ev.phase2Participants || []).map((p, pdx) => (
+                {ev.participants.map((p, pdx) => (
                   <tr key={pdx}>
                     <td>{p}</td>
-                    {(ev.criteriaPhase2 || []).map((c, cdx) => (
-                      <td key={cdx}>
-                        {Object.values(ev.phase2Scores || {}).map(judgeScores =>
-                          judgeScores[p]?.[c.name] ?? ''
-                        ).filter(v => v !== '').map(Number).reduce((a, b) => a + b, 0)}
-                      </td>
+                    {ev.judges.map((j, jdx) => (
+                      <td key={jdx}>{calcTotalForJudge(ev, j, p)}</td>
                     ))}
-                    <td>{calcTotalAllJudges(ev, p, 'phase2')}</td>
-                    <td>{calcAvgPhased(ev, p, 'phase2')}</td>
+                    <td>{calcTotalAllJudges(ev, p)}</td>
+                    <td>{calcAvg(ev, p)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-  
-            {/* Phase 2 Rankings */}
-            <h4>🏅 Phase 2 Rankings</h4>
-            <ol>
-              {(ev.phase2Participants || [])
-                .map((p) => ({
-                  name: p,
-                  avg: Number(calcAvgPhased(ev, p, 'phase2') || 0),
-                }))
-                .sort((a, b) => b.avg - a.avg)
-                .map((r, i) => (
-                  <li key={i}>{r.name} — {r.avg.toFixed(2)}</li>
-                ))}
-            </ol>
-          </>
-        )}
-  
-        {/* Combined Overall Rankings */}
-        {organizerView && (ev.phase2Participants || []).length > 0 && (
-          <>
-            <h4>🌟 Overall Rankings (Phase 1 + Phase 2)</h4>
-            <ol>
-              {(ev.phase2Participants || [])
-                .map((p) => {
-                  const combined = Number(calcCombinedAvgPhased(ev, p) || 0);
-                  return { name: p, combined };
-                })
-                .sort((a, b) => b.combined - a.combined)
-                .map((r, i) => (
-                  <li key={i}>{r.name} — {r.combined.toFixed(2)}</li>
-                ))}
-            </ol>
-          </>
-        )}
-        {organizerView && (
-  <div className="button-row">
-    <button className="btn-yellow" onClick={() =>
-      promptEditList('Participants', ev.participants, (newList) => {
-        updateEvent(idx, { ...ev, participants: newList });
+
+            {ev.resultsVisibleToJudges && renderSummary(ev)}
+          </div>
+        );
       })
-    }>
-      ✏️ Edit Participants
-    </button>
+    )}
+  </>
+) : (
 
-    <button className="btn-yellow" onClick={() =>
-      promptEditList('Judges', ev.judges, (newList) => {
-        updateEvent(idx, { ...ev, judges: newList });
-      })
-    }>
-      🧑‍⚖️ Edit Judges
-    </button>
-
-    <button className="btn-yellow" onClick={() =>
-      promptEditList('Criteria', ev.criteria.map((c) => c.name || c), (newList) => {
-        const formatted = newList.map((name) => ({ name, max: 10 }));
-        updateEvent(idx, { ...ev, criteria: formatted });
-      })
-    }>
-      📝 Edit Criteria
-    </button>
-
-    <button className="btn-green" onClick={() => toggleVisibility(idx)}>
-      {ev.visibleToJudges ? '🙈 Hide from Judges' : '👁️ Show to Judges'}
-    </button>
-
-    <button className="btn-blue" onClick={() => toggleResultsVisibility(idx)}>
-      {ev.resultsVisibleToJudges ? '🙈 Hide Results' : '📊 Show Results'}
-    </button>
-
-    <button className="btn-red" onClick={() => deleteEvent(idx)}>
-      🗑️ Delete Event
+      <>
+{viewMode === 'organizer' && organizerView && (
+  <div className="flex-center">
+    <button onClick={refreshAllData} className="btn-gray">
+      🔄 Refresh Data
     </button>
   </div>
 )}
-      </div>
-    );
-  };
-  const calcTotalForJudgePhased = (ev, judge, participant, phaseKey) => {
-    const scores = ev[phaseKey + 'Scores']?.[judge]?.[participant];
-    if (!scores) return 0;
-    return Object.values(scores).reduce((sum, val) => sum + Number(val || 0), 0);
-  };
-  
-  const calcAvgPhased = (ev, participant, phaseKey) => {
-    const judgeList = Object.keys(ev[phaseKey + 'Scores'] || {});
-    if (judgeList.length === 0) return 0;
-  
-    let total = 0;
-    judgeList.forEach((j) => {
-      total += calcTotalForJudge(ev, j, participant, phaseKey);
-    });
-    return (total / judgeList.length).toFixed(2);
-  };
-  
-  const calcCombinedAvg = (ev, participant) => {
-    const judgeList1 = Object.keys(ev.phase1Scores || {});
-    const judgeList2 = Object.keys(ev.phase2Scores || {});
-    const totalJudges = new Set([...judgeList1, ...judgeList2]);
-  
-    if (totalJudges.size === 0) return 0;
-  
-    let total = 0;
-    totalJudges.forEach((j) => {
-      total += calcTotalForJudge(ev, j, participant, 'phase1');
-      total += calcTotalForJudge(ev, j, participant, 'phase2');
-    });
-    return (total / totalJudges.size).toFixed(2);
-  };
-    const getRanking = (ev, phaseKey) => {
-    const participants = phaseKey === 'phase1'
-      ? ev.phase1Participants
-      : phaseKey === 'phase2'
-      ? ev.phase2Participants
-      : Array.from(new Set([...(ev.phase1Participants || []), ...(ev.phase2Participants || [])]));
-  
-    return [...participants].sort((a, b) => {
-      const avgA = phaseKey === 'overall'
-        ? calcCombinedAvg(ev, a)
-        : calcAvg(ev, a, phaseKey);
-      const avgB = phaseKey === 'overall'
-        ? calcCombinedAvg(ev, b)
-        : calcAvg(ev, b, phaseKey);
-      return avgB - avgA;
-    });
-  };
+<div>
+<div className="top-bar">
+  <h1>🎯 Digital Scoresheet App</h1>
+  <p className="text-center credits">made by JCTA</p>
 
-  if (viewMode === 'organizer' && organizerView) {
+    <button className="btn-gray" onClick={refreshAllData}>
+      🔄 Refresh Data
+    </button>
+
+    <button className="btn-red" onClick={handleAuthLogout}>
+      🚪 Logout
+    </button>
+  </div>
+
+  {organizerView && (
+    <div className="card">
+      <h3>Active Judge Codes:</h3>
+      <ul>
+        {judgeCodes.map((code, i) => (
+          <li key={i}>{code}</li>
+        ))}
+      </ul>
+    </div>
+  )}
+</div>
+{visibleJudgeEvents.length === 0 ? (
+  <p style={{
+    textAlign: 'center',
+    marginTop: '60px',
+    fontSize: '18px',
+    fontWeight: 'bold',
+    color: '#444'
+  }}>
+    There's no assigned events yet. Please wait for the organizer. Thank you!
+  </p>
+) : (
+  visibleJudgeEvents.map((ev, idx) => {
+    const isJudgeAllowed = ev.judges
+      .map((j) => j.toLowerCase())
+      .includes(currentJudge.trim().toLowerCase());
+
+    if (!ev.visibleToJudges || !isJudgeAllowed) return null;
+
+    const safeCriteria = ev.criteria.map((c) => {
+      if (typeof c === 'string') {
+        const match = c.match(/^(.*?)(?:\s*\((\d+)\))?$/);
+        return {
+          name: match?.[1]?.trim() || c,
+          max: match?.[2] ? parseInt(match[2]) : 10,
+        };
+      }
+      return c;
+    });
+
     return (
-      <div className="app-container">
-        <h1>📋 Organizer Dashboard</h1>
-  
-        <div className="btn-row">
-          <button className="btn-green" onClick={createNewEvent}>
-            ➕ Add Event
-          </button>
-          <button className="btn-yellow" onClick={createTwoPhasedEvent}>
-            ✌️ Add Two-Phased Event
-          </button>
-          <button className="btn-purple" onClick={generateJudgeCode}>
-            🎟️ Generate Judge Code
-          </button>
-          <button className="btn-blue" onClick={handleExport}>
-            📤 Export
-          </button>
-          <button className="btn-orange" onClick={handleImport}>
-            📥 Import
-          </button>
-          <button className="btn-gray" onClick={refreshAllData}>
-            🔄 Refresh
-          </button>
-          <button className="btn-red" onClick={handleAuthLogout}>
-            🔓 Logout
-          </button>
-        </div>
-  
-        {/* Active Judge Codes */}
-        <div className="card">
-          <h3>🎟️ Active Judge Codes:</h3>
-          <ul>
-            {judgeCodes.length === 0 ? (
-              <li>No codes yet</li>
-            ) : (
-              judgeCodes.map((code, i) => (
-                <li key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>{code}</span>
-                </li>
-              ))
-            )}
-          </ul>
-        </div>
-  
-        {/* Event List */}
-        {events.map((ev, idx) =>
-          ev.phased ? renderTwoPhasedEvent(ev, idx) : renderOnePhasedEvent(ev, idx)
+      <div key={idx} className="card">
+        <h2>{ev.name}</h2>
+
+        {!ev.submittedJudges?.includes(currentJudge) && (
+          <p style={{
+            color: 'red',
+            fontWeight: 'bold',
+            textAlign: 'center',
+            marginBottom: '10px'
+          }}>
+            Important: After submitting, you can view the scores you've given but you cannot change it.
+            Final ranking will be shown after the organizer received all scores from all judges. Thank you!
+          </p>
         )}
-      </div>
-    );
-  }     
-  return (
-    <div className="app-container">
-      {viewMode === 'organizer' && organizerView ? (
-        <>
-          <div className="top-bar">
-            <h1>🎯 Digital Scoresheet App</h1>
-            <p className="text-center credits">made by JCTA</p>
-  
-            <div className="flex-center">
-              <button className="btn-green" onClick={createNewEvent}>
-                ➕ Add Event
-              </button>
-              <button className="btn-green" onClick={createTwoPhasedEvent}>
-                ➕ Add Two-Phased Event
-              </button>
-              <button className="btn-purple" onClick={handleImport}>
-                📥 Import
-              </button>
-              <button className="btn-purple" onClick={handleExport}>
-                📤 Export ▼
-              </button>
-              <button className="btn-yellow" onClick={generateJudgeCode}>
-                🎫 Generate Judge Code
-              </button>
-              <button className="btn-blue" onClick={changeOrganizerPassword}>
-                🔐 Change Password
-              </button>
-              <button className="btn-gray" onClick={refreshAllData}>
-                🔄 Refresh
-              </button>
-              <button
-                className="btn-gray"
-                onClick={() => {
-                  setOrganizerView(false);
-                  setViewMode('judge');
-                }}
-              >
-                👨‍⚖️ Switch to Judge View
-              </button>
-              <button className="btn-red" onClick={handleAuthLogout}>
-                🚪 Logout
-              </button>
-            </div>
-  
-            {/* Active Judge Codes */}
-            <div className="card">
-              <h3>🎟️ Active Judge Codes:</h3>
-              <ul>
-                {judgeCodes.length === 0 ? (
-                  <li>No codes yet</li>
-                ) : (
-                  judgeCodes.map((code, i) => <li key={i}>{code}</li>)
-                )}
-              </ul>
-            </div>
-          </div>
-  
-          {events.length === 0 ? (
-            <p className="text-center">
-              📭 No events yet. Click "➕ Add Event" to begin.
-            </p>
-          ) : (
-            <>
-              {events.map((ev, idx) => {
-                if (ev.phased) {
-                  return renderTwoPhasedEvent(ev, idx);
-                } else {
-                  return renderOnePhasedEvent(ev, idx);
-                }
-              })}
-  
-              <div className="flex-center">
-                <button onClick={refreshAllData} className="btn-gray">
-                  🔄 Refresh Data
+              <table>
+                <thead>
+                  <tr>
+                    <th>Participant</th>
+                    {safeCriteria.map((c, cdx) => (
+                      <th key={cdx}>
+                        {c.name} ({c.max})
+                      </th>
+                    ))}
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ev.participants.map((p, pdx) => (
+                    <tr key={pdx}>
+                      <td>{p}</td>
+                      {safeCriteria.map((c, cdx) => (
+                        <td key={cdx}>
+                          <input
+                            type="number"
+                            min={0}
+                            max={c.max}
+                            value={
+                              tempScores?.[idx]?.[p]?.[c.name] ??
+                              ev.scores?.[currentJudge]?.[p]?.[c.name] ??
+                              ''
+                            }
+                            disabled={ev.submittedJudges?.includes(currentJudge)}
+                            onChange={(e) => {
+                              const newVal = e.target.value;
+                              if (Number(newVal) <= c.max) {
+                                setTempScores((prev) => ({
+                                  ...prev,
+                                  [idx]: {
+                                    ...(prev[idx] || {}),
+                                    [p]: {
+                                      ...(prev[idx]?.[p] || {}),
+                                      [c.name]: newVal,
+                                    },
+                                  },
+                                }));
+                              }
+                            }}
+                            onBlur={(e) => {
+                              const val = tempScores?.[idx]?.[p]?.[c.name];
+                              if (val !== undefined && val !== '') {
+                                handleInputScore(
+                                  idx,
+                                  currentJudge,
+                                  p,
+                                  c.name,
+                                  Number(val)
+                                );
+                              }
+                            }}
+                          />
+                        </td>
+                      ))}
+                      <td>{calcTotalForJudge(ev, currentJudge, p)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {!ev.submittedJudges?.includes(currentJudge) ? (
+                <button
+                  className="btn-green"
+                  onClick={() => handleSubmitScores(idx)}
+                >
+                  Submit Scores
                 </button>
-              </div>
-            </>
-          )}
-        </>
-      ) : (
-        <>
-{events.map((ev, idx) => {
-  if (ev.phased) {
-    return (
-      <div key={idx} className="card">
-        {renderTwoPhasedEvent(ev, idx)}
+              ) : (
+                <>
+                  <p className="submitted-label">
+                    Submitted. You can view but not change scores.
+                  </p>
+                  {ev.resultsVisibleToJudges && renderSummary(ev)}
+                </>
+              )}
+            </div>
+);
+})
+)}
+</>
+)}
+{/* Watermark */}
+    <div style={{ display: 'none' }}>
+      {Array.from('JOHN CARL TABANAO ALCORIN')
+        .map((char) => char.charCodeAt(0).toString(2))
+        .join(' ')}
+    </div>
+    {/* Chat Section (visible to both organizer and judge) */}
+<div className="chat-box">
+  <button
+    className="btn-purple"
+    onClick={() => setChatOpen((prev) => !prev)}
+  >
+    💬 {chatOpen ? 'Close Chat' : 'Open Chat'}
+  </button>
 
-        {/* Organizer controls for two-phased event */}
-        <div className="flex-center" style={{ marginTop: '1em' }}>
-          <button className="btn-blue" onClick={() =>
-            promptEditList("Edit Participants", ev.participants, (newList) => {
-              updateEvent(idx, { ...ev, participants: newList });
-            })
-          }>👥 Edit Participants</button>
-
-          <button className="btn-blue" onClick={() =>
-            promptEditList("Edit Judges", ev.judges, (newList) => {
-              updateEvent(idx, { ...ev, judges: newList });
-            })
-          }>⚖️ Edit Judges</button>
-
-          <button className="btn-blue" onClick={() =>
-            promptEditList("Edit Phase 1 Criteria", ev.criteriaPhase1.map(c => c.name), (newList) => {
-              const updated = newList.map((name) => ({ name, max: 10 }));
-              updateEvent(idx, { ...ev, criteriaPhase1: updated });
-            })
-          }>📋 Edit Phase 1 Criteria</button>
-
-          <button className="btn-blue" onClick={() =>
-            promptEditList("Edit Phase 2 Criteria", ev.criteriaPhase2.map(c => c.name), (newList) => {
-              const updated = newList.map((name) => ({ name, max: 10 }));
-              updateEvent(idx, { ...ev, criteriaPhase2: updated });
-            })
-          }>📋 Edit Phase 2 Criteria</button>
-
-          <button className="btn-purple" onClick={() => toggleVisibility(idx)}>
-            {ev.visibleToJudges ? '🙈 Hide from Judges' : '👁️ Show to Judges'}
-          </button>
-
-          <button className="btn-purple" onClick={() => toggleResultsVisibility(idx)}>
-            {ev.resultsVisibleToJudges ? '❌ Hide Results' : '📊 Show Results'}
-          </button>
-
-          <button className="btn-red" onClick={() => deleteEvent(idx)}>
-            🗑️ Delete
-          </button>
-        </div>
+  {chatOpen && (
+    <div className="chat-window">
+      <div className="chat-messages">
+        {chatMessages.map((msg, i) => (
+          <p key={i}>
+            <strong>{msg.sender}:</strong> {msg.text}
+          </p>
+        ))}
       </div>
-    );
-  } else {
-    return (
-      <div key={idx} className="card">
-        {renderOnePhasedEvent(ev, idx)}
-
-        {/* Organizer controls for one-phased event */}
-        <div className="flex-center" style={{ marginTop: '1em' }}>
-          <button className="btn-blue" onClick={() =>
-            promptEditList("Edit Participants", ev.participants, (newList) => {
-              updateEvent(idx, { ...ev, participants: newList });
-            })
-          }>👥 Edit Participants</button>
-
-          <button className="btn-blue" onClick={() =>
-            promptEditList("Edit Judges", ev.judges, (newList) => {
-              updateEvent(idx, { ...ev, judges: newList });
-            })
-          }>⚖️ Edit Judges</button>
-
-          <button className="btn-blue" onClick={() =>
-            promptEditList("Edit Criteria", ev.criteria.map(c => c.name || c), (newList) => {
-              const updated = newList.map((name) => ({ name, max: 10 }));
-              updateEvent(idx, { ...ev, criteria: updated });
-            })
-          }>📋 Edit Criteria</button>
-
-          <button className="btn-purple" onClick={() => toggleVisibility(idx)}>
-            {ev.visibleToJudges ? '🙈 Hide from Judges' : '👁️ Show to Judges'}
-          </button>
-
-          <button className="btn-purple" onClick={() => toggleResultsVisibility(idx)}>
-            {ev.resultsVisibleToJudges ? '❌ Hide Results' : '📊 Show Results'}
-          </button>
-
-          <button className="btn-red" onClick={() => deleteEvent(idx)}>
-            🗑️ Delete
-          </button>
-        </div>
-      </div>
-    );
-  }
-})}
-
-                  </>
-      )}
-  
-      {/* Hidden Watermark */}
-      <div style={{ display: 'none' }}>
-        {Array.from('JOHN CARL TABANAO ALCORIN')
-          .map((char) => char.charCodeAt(0).toString(2))
-          .join(' ')}
+      <div className="chat-input">
+        <input
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          placeholder="Type your message..."
+        />
+        <button className="btn-blue" onClick={handleSendMessage}>
+          Send
+        </button>
       </div>
     </div>
-  );
-} catch (err) {
-  console.error("❌ Rendering error:", err);
-  return <div style={{ padding: 20, color: 'red' }}>App crashed: {String(err)}</div>;
-}
-}
-        
+  )}
+</div>
+
+  </div> // <-- closes .app-container
+);       // <-- closes the return
+  }
